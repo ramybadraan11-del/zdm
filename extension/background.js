@@ -11,6 +11,7 @@
  */
 
 const NATIVE_HOST = 'com.zyzoom.download_manager';
+const BRIDGE_URL = 'http://127.0.0.1:46800';
 
 const MEDIA_EXTENSIONS = [
   '.mp4', '.m4v', '.m4a', '.mkv', '.webm', '.mov', '.avi', '.flv', '.ts', '.m3u8',
@@ -43,20 +44,55 @@ function nativeConnect() {
   }
   nativePort.onDisconnect.addListener(() => {
     nativePort = null;
+    if (lastBatch && lastBatch.length) {
+      // المضيف المحلي غير متاح — نجرّب المسار المباشر
+      sendDirect(lastBatch);
+    }
   });
   nativePort.onMessage.addListener((response) => {
     if (response && response.ok === false && response.error === 'zyzoom-app-not-running') {
       chrome.storage.local.set({ lastError: ' Zyzoom Download Manager لا يعمل' });
+      if (lastBatch && lastBatch.length) sendDirect(lastBatch);
     }
   });
   return nativePort;
 }
 
+/**
+ * مسار بديل: إرسال مباشر إلى جسر التطبيق عبر HTTP.
+ * يعمل عندما لا يتوفر مضيف Native Messaging (مثل ويندوز بلا Node).
+ */
+async function sendDirect(items) {
+  try {
+    const response = await fetch(`${BRIDGE_URL}/capture`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items, source: 'zyzoom-capture' }),
+    });
+    if (!response.ok) {
+      chrome.storage.local.set({ lastError: `تعذّر الوصول إلى التطبيق (${response.status})` });
+      return false;
+    }
+    const data = await response.json();
+    if (data && data.ok) {
+      chrome.storage.local.set({ lastError: '', lastCaptureAt: Date.now() });
+      return true;
+    }
+    return false;
+  } catch (err) {
+    chrome.storage.local.set({ lastError: 'تعذّر الوصول إلى Zyzoom Download Manager' });
+    return false;
+  }
+}
+
+let lastBatch = [];
+
 function sendToApp(items) {
   if (!items.length) return;
+  lastBatch = items;
   const port = nativeConnect();
   if (!port) {
-    chrome.storage.local.set({ lastError: 'تعذّر الاتصال بمضيف Native Messaging' });
+    sendDirect(items);
     return;
   }
   try {
@@ -64,6 +100,7 @@ function sendToApp(items) {
     chrome.storage.local.set({ lastError: '', lastCaptureAt: Date.now() });
   } catch (err) {
     nativePort = null;
+    sendDirect(items);
   }
 }
 

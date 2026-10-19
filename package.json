@@ -8,7 +8,11 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "test": "node --test test/",
-    "selftest": "electron . --no-sandbox --ozone-platform=headless --disable-gpu --selftest"
+    "selftest": "electron . --no-sandbox --ozone-platform=headless --disable-gpu --selftest",
+    "dist": "electron-builder",
+    "dist:linux": "electron-builder --linux AppImage tar.gz",
+    "dist:win": "electron-builder --win zip",
+    "dist:all": "electron-builder --linux AppImage tar.gz --win zip"
   },
   "keywords": [
     "electron",
@@ -19,6 +23,65 @@
   "author": "Zyzoom",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^33.2.1"
+    "electron": "^33.2.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "net.zyzoom.downloadmanager",
+    "productName": "Zyzoom Download Manager",
+    "copyright": "© 2026 Zyzoom",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "native-host",
+        "to": "native-host",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "extension",
+        "to": "extension",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Network",
+      "icon": "build/icons",
+      "synopsis": "Zyzoom Download Manager",
+      "desktop": {
+        "entry": {
+          "Name": "Zyzoom Download Manager",
+          "Comment": "مدير تنزيل Zyzoom",
+          "Categories": "Network;FileTransfer;DownloadManager;",
+          "StartupWMClass": "Zyzoom Download Manager",
+          "MimeType": "x-scheme-handler/zyzoom;"
+        }
+      }
+    },
+    "win": {
+      "target": [
+        "zip"
+      ],
+      "icon": "build/icons/icon.ico",
+      "artifactName": "Zyzoom-Download-Manager-${version}-win-${arch}.${ext}"
+    },
+    "executableName": "Zyzoom Download Manager"
   }
 }

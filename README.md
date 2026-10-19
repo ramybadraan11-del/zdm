@@ -36,6 +36,31 @@ npm test           # تشغيل الاختبارات
 
 ---
 
+## البناء (حزم جاهزة للتشغيل)
+
+```bash
+npm run dist:all      # AppImage + tar.gz (لينكس) + zip (ويندوز)
+npm run dist:linux    # لينكس فقط
+npm run dist:win      # ويندوز فقط
+```
+
+الناتج في مجلد `release/`:
+
+| الملف | النظام | طريقة الاستخدام |
+| --- | --- | --- |
+| `Zyzoom Download Manager-1.0.0-linux-x86_64.AppImage` | لينكس | `chmod +x` ثم تشغيله مباشرة (ملف واحد) |
+| `Zyzoom Download Manager-1.0.0-linux-x64.tar.gz` | لينكس | فكّ الضغط وتشغيل `Zyzoom Download Manager` |
+| `Zyzoom-Download-Manager-1.0.0-win-x64.zip` | ويندوز | فكّ الضغط وتشغيل `Zyzoom Download Manager.exe` |
+
+> **ملاحظة ويندوز:** لا يمكن إنتاج ملف تثبيت NSIS (.exe واحد) من لينكس دون Wine، لذلك الحزمة
+> أرشيف ZIP يحتوي على الملف التنفيذي `Zyzoom Download Manager.exe` مع كل المكتبات —
+> يكفي فك الضغط وتشغيل الـ exe مباشرة.
+> الحزمة تحتوي على `resources/extension` (الامتداد) و`resources/native-host` (المضيف)؛
+> من داخل التطبيق: «قائمة المتصفح» ← «فتح مجلد الامتداد» لتحميله في المتصفح، و
+> «تثبيت سجلّ المضيف» لربطه بالتطبيق.
+
+---
+
 ## الواجهة
 
 * **لوحة التحكم الرئيسية** — شريط جانبي (كل التنزيلات، قيد التنزيل، مكتمل، الطوابير، كاشف الفيديو،

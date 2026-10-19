@@ -35,6 +35,26 @@ class CaptureBridge {
     this.onStatus = options.onStatus || (() => {});
     this.server = null;
     this.configPath = options.configPath || path.join(configDir(), 'bridge.json');
+    // معرّفات الامتدادات المسموح لها بالوصول المباشر (بديل عن Native Messaging)
+    this.extensionAllowlist = new Set(options.extensionIds || []);
+  }
+
+  setExtensionAllowlist(ids) {
+    this.extensionAllowlist = new Set((ids || []).filter(Boolean));
+  }
+
+  /**
+   * التحقق من الصلاحية:
+   *  - رمز سرّي صحيح (المضيف المحلي / Native Messaging)، أو
+   *  - أصل من امتداد ممتد (chrome-extension://<id>) مسموح به.
+   */
+  isAuthorized(req, token) {
+    if (token && token === this.token) return true;
+    const origin = req.headers.origin || '';
+    const match = /^chrome-extension:\/\/([a-p]{32})$/.exec(origin);
+    if (!match) return false;
+    if (this.extensionAllowlist.size === 0) return true;
+    return this.extensionAllowlist.has(match[1]);
   }
 
   async writeConfig(extra = {}) {
@@ -60,10 +80,20 @@ class CaptureBridge {
   async start() {
     this.server = http.createServer((req, res) => {
       const url = new URL(req.url, `http://${req.headers.host}`);
-      res.setHeader('Access-Control-Allow-Origin', 'null');
+      const origin = req.headers.origin || '';
+      const isExtension = /^chrome-extension:\/\//.test(origin);
+
       res.setHeader('Cache-Control', 'no-store');
+      if (isExtension) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+      } else {
+        res.setHeader('Access-Control-Allow-Origin', 'null');
+      }
 
       if (req.method === 'OPTIONS') {
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'content-type');
         res.writeHead(204);
         res.end();
         return;
@@ -102,7 +132,7 @@ class CaptureBridge {
             res.end(JSON.stringify({ ok: false, error: 'invalid-json' }));
             return;
           }
-          if (payload.token !== this.token) {
+          if (!this.isAuthorized(req, payload.token)) {
             res.writeHead(403, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
             return;

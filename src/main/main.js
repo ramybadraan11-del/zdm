@@ -18,6 +18,20 @@ function rendererUrl(file) {
   return `file://${path.join(__dirname, '..', 'renderer', file)}`;
 }
 
+/** مسار المضيف/الامتداد: داخل resources عند الحزمة، وفي المستودع أثناء التطوير. */
+function resourcePath(...parts) {
+  if (app.isPackaged) return path.join(process.resourcesPath, ...parts);
+  return path.join(__dirname, '..', '..', ...parts);
+}
+
+function nativeHostScriptPath() {
+  return resourcePath('native-host', 'zyzoom_native_host.js');
+}
+
+function extensionDirPath() {
+  return resourcePath('extension');
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -166,6 +180,8 @@ app.whenReady().then(() => {
     },
   });
   bridge.start().catch((err) => console.log('[bridge] failed:', err.message));
+  console.log('[zyzoom] extension dir:', extensionDirPath());
+  console.log('[zyzoom] native host:', nativeHostScriptPath());
 
   ipcMain.handle('zyzoom:downloads:list', () => engine.list());
   ipcMain.handle('zyzoom:downloads:add', (_event, payload) => engine.add(payload || {}));
@@ -187,6 +203,9 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('zyzoom:settings:update', (_event, options) => {
     engine.setOptions(options || {});
+    if (bridge && options && Array.isArray(options.extensionIds)) {
+      bridge.setExtensionAllowlist(options.extensionIds);
+    }
     return true;
   });
   ipcMain.handle('zyzoom:captures:list', () => engine.listCaptures());
@@ -219,10 +238,16 @@ app.whenReady().then(() => {
     port: bridge ? bridge.port : null,
     configPath: bridge ? bridge.configPath : null,
     manifests: hostManifestPaths(),
-    nativeHostScript: path.join(__dirname, '..', '..', 'native-host', 'zyzoom_native_host.js'),
+    nativeHostScript: nativeHostScriptPath(),
+    extensionDir: extensionDirPath(),
+    packaged: app.isPackaged,
   }));
+  ipcMain.handle('zyzoom:bridge:open-extension', () => {
+    shell.openPath(extensionDirPath());
+    return extensionDirPath();
+  });
   ipcMain.handle('zyzoom:bridge:install-host', async (_event, extensionId) => {
-    const hostPath = path.join(__dirname, '..', '..', 'native-host', 'zyzoom_native_host.js');
+    const hostPath = nativeHostScriptPath();
     try {
       await require('fs').promises.chmod(hostPath, 0o755);
     } catch (err) {

@@ -557,6 +557,9 @@
         case 'install-host':
           installNativeHost();
           break;
+        case 'open-extension':
+          api.bridge.openExtension();
+          break;
         default:
           break;
       }

@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('zyzoom', {
   bridge: {
     info: () => ipcRenderer.invoke('zyzoom:bridge:info'),
     installHost: (extensionId) => ipcRenderer.invoke('zyzoom:bridge:install-host', extensionId),
+    openExtension: () => ipcRenderer.invoke('zyzoom:bridge:open-extension'),
   },
   window: {
     control: (action) => ipcRenderer.invoke('zyzoom:window:control', action),
