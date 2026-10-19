@@ -1,0 +1,238 @@
+/* ==========================================================================
+   Media Sniffer window styles
+   ========================================================================== */
+
+.sniffer .titlebar .subtitle {
+  direction: ltr;
+  display: inline-block;
+}
+
+.sniffer-url {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--bg-shell);
+}
+
+.url-icon {
+  color: var(--text-mute);
+  display: grid;
+  place-items: center;
+}
+
+.url-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.url-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--text);
+  outline: none;
+  user-select: text;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.url-input:focus {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
+}
+
+.url-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.url-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.url-btn.accent {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.url-btn svg {
+  width: 19px;
+  height: 19px;
+}
+
+.sniffer-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 0;
+}
+
+.sniffer-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 14px 18px 18px;
+}
+
+.quick-sniffer {
+  border-inline-start: 1px solid var(--line-soft);
+  background: var(--bg-panel);
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.media-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.media-item {
+  display: grid;
+  grid-template-columns: 150px 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.media-item:hover {
+  border-color: var(--line-strong);
+  background: var(--bg-card-alt);
+}
+
+.media-thumb {
+  position: relative;
+  width: 150px;
+  height: 84px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1b3358, #0e1e36);
+  display: grid;
+  place-items: center;
+}
+
+.media-thumb .badge {
+  position: absolute;
+  inset-inline-end: 6px;
+  bottom: 6px;
+  background: rgba(4, 9, 18, 0.85);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  direction: ltr;
+}
+
+.media-thumb svg {
+  width: 26px;
+  height: 26px;
+  color: rgba(232, 240, 251, 0.35);
+}
+
+.media-info {
+  min-width: 0;
+}
+
+.media-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-sub {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text-mute);
+  flex-wrap: wrap;
+}
+
+.media-sub b {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.media-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.media-check input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.qs-block {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.qs-block:last-child {
+  border-bottom: 0;
+}
+
+.qs-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+.qs-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.qs-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qs-label svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-mute);
+}
+
+.qs-check {
+  color: var(--green);
+  display: grid;
+  place-items: center;
+}
+
+.qs-check svg {
+  width: 16px;
+  height: 16px;
+}

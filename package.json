@@ -1,0 +1,24 @@
+{
+  "name": "zyzoom-download-manager",
+  "productName": "Zyzoom Download Manager",
+  "version": "1.0.0",
+  "description": "Zyzoom Download Manager - مدير تنزيل Zyzoom مع كاشف وسائط ومتصفح مدمج",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test test/",
+    "selftest": "electron . --no-sandbox --ozone-platform=headless --disable-gpu --selftest"
+  },
+  "keywords": [
+    "electron",
+    "download-manager",
+    "zyzoom",
+    "media-sniffer"
+  ],
+  "author": "Zyzoom",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.1"
+  }
+}
