@@ -279,6 +279,8 @@ class DownloadEngine extends EventEmitter {
       onStatus: (status, extra) => {
         if (status === 'failed') {
           this.update(record.id, { status: 'failed', error: extra.error || null, speed: 0 });
+        } else if (status === 'completed') {
+          this.update(record.id, { status, finishedAt: new Date().toISOString(), speed: 0 });
         } else {
           this.update(record.id, { status });
         }
@@ -317,10 +319,10 @@ class DownloadEngine extends EventEmitter {
     const runtime = this.runtimes.get(id);
 
     if (runtime) {
-      if (action === 'pause') runtime.pause();
+      if (action === 'pause') runtime.pause().catch(() => {});
       else if (action === 'start') runtime.start().catch(() => {});
       else if (action === 'stop') {
-        runtime.pause();
+        runtime.pause().catch(() => {});
         this.update(id, { status: 'queued', speed: 0 });
       }
       return item;
