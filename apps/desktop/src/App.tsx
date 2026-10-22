@@ -96,11 +96,16 @@ export const App: React.FC = () => {
       fetchDownloads();
     });
 
+    const unlistenOpenAdd = listen<any>('open_add_modal', () => {
+      setIsAddModalOpen(true);
+    });
+
     return () => {
       unlistenProgress.then((f) => f());
       unlistenCompleted.then((f) => f());
       unlistenPaused.then((f) => f());
       unlistenDeleted.then((f) => f());
+      unlistenOpenAdd.then((f) => f());
     };
   }, []);
 

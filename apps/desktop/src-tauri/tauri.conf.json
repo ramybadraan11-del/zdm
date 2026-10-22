@@ -36,6 +36,34 @@
       "icons/icon.png",
       "icons/icon.ico"
     ],
-    "copyright": "Copyright © 2026 Ramy Badraan. All rights reserved."
+    "copyright": "Copyright © 2026 Ramy Badraan. All rights reserved.",
+    "category": "Network",
+    "shortDescription": "Turbo Multi-Segment Download Accelerator",
+    "longDescription": "Zyzoom Download Manager (ZDM) - High-Performance Download Accelerator with dynamic multi-range direct disk writing, video sniffer, and browser integration. Developed by Ramy Badraan.",
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "icons/128x128.png",
+        "sidebarImage": "icons/icon.png",
+        "installMode": "both",
+        "languages": ["Arabic", "English"],
+        "displayLanguageSelector": true
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37",
+          "libayatana-appindicator3-1"
+        ],
+        "section": "net"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
   }
 }
