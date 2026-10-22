@@ -1,0 +1,12 @@
+[package]
+name = "zdm-host"
+version = "1.0.0"
+edition = "2021"
+authors = ["Ramy Badraan"]
+description = "Native Messaging Host for Zyzoom Download Manager (ZDM)"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+byteorder = "1.5"
+tokio = { version = "1", features = ["full"] }

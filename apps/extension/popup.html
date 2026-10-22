@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>ZDM Extension</title>
+  <style>
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 16px;
+      background: #0B1020;
+      color: #E8ECFF;
+      font-family: 'Cairo', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      box-sizing: border-box;
+      user-select: none;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1E294D;
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+    .logo-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .z-box {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #00F5FF, #7C4DFF);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      color: #0B1020;
+      font-size: 14px;
+    }
+    .title {
+      font-weight: 800;
+      font-size: 15px;
+      color: #FFF;
+    }
+    .status-badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #10B981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      font-weight: bold;
+    }
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #121933;
+      border: 1px solid #1E294D;
+      padding: 10px 12px;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #00F5FF, #7C4DFF);
+      color: #0B1020;
+      font-weight: 800;
+      font-size: 13px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: opacity 0.2s;
+    }
+    .btn:hover {
+      opacity: 0.92;
+    }
+    .footer {
+      margin-top: 14px;
+      text-align: center;
+      font-size: 11px;
+      color: #64748B;
+      border-top: 1px solid #1A2346;
+      padding-top: 8px;
+    }
+    .author {
+      color: #00F5FF;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo-badge">
+      <div class="z-box">Z</div>
+      <div class="title">ZDM Turbo</div>
+    </div>
+    <div class="status-badge" id="statusIndicator">متصل بالتطبيق</div>
+  </div>
+
+  <div class="switch-row">
+    <span>التقاط التنزيلات تلقائياً</span>
+    <input type="checkbox" id="captureToggle" checked />
+  </div>
+
+  <button class="btn" id="openZdmBtn">
+    🚀 فتح نافذة ZDM الرئيسية
+  </button>
+
+  <div class="footer">
+    Zyzoom Download Manager<br/>
+    Developed by <span class="author">Ramy Badraan</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

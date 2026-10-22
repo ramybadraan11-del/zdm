@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #00F5FF;
+  --color-accent: #7C4DFF;
+  --color-magenta: #FF2E93;
+}
+
+body {
+  margin: 0;
+  font-family: 'Cairo', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Cyber Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0B1020;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1E294D;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #00F5FF;
+}
+
+/* Shimmer animation for download segment bars */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s infinite;
+}
+
+/* Neon glow utilities */
+.glow-cyan {
+  box-shadow: 0 0 15px rgba(0, 245, 255, 0.45);
+}
+
+.glow-purple {
+  box-shadow: 0 0 15px rgba(124, 77, 255, 0.45);
+}
+
+.glow-magenta {
+  box-shadow: 0 0 15px rgba(255, 46, 147, 0.45);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #00F5FF 0%, #7C4DFF 50%, #FF2E93 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

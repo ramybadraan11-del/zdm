@@ -1,0 +1,17 @@
+{
+  "name": "zdm-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "author": "Ramy Badraan",
+  "license": "Proprietary",
+  "description": "Zyzoom Download Manager (ZDM) - High Performance Download Accelerator",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --prefix apps/desktop run tauri dev",
+    "build": "npm --prefix apps/desktop run tauri build",
+    "desktop:web": "npm --prefix apps/desktop run dev",
+    "desktop:build": "npm --prefix apps/desktop run build"
+  }
+}
