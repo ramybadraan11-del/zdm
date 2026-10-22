@@ -60,12 +60,12 @@ fn main() {
             manager_for_setup.set_app_handle(app.handle().clone());
 
             // Start local IPC server for browser extension captures inside Tauri runtime
-            ipc::start_ipc_server(Arc::clone(&manager_for_setup));
+            ipc::start_ipc_server(Arc::clone(&manager_for_setup), app.handle().clone());
 
             let main_window = app.get_webview_window("main").expect("Failed to get main window");
 
-            if is_minimized_launch {
-                let _ = main_window.hide();
+            if !is_minimized_launch {
+                let _ = main_window.show();
             }
 
             // Create Tray Menu
@@ -162,6 +162,8 @@ fn main() {
             commands::get_stats,
             commands::query_video_info,
             commands::download_video_stream,
+            commands::start_video_download,
+            commands::check_file_conflict,
             commands::update_yt_dlp_engine,
             commands::get_browsers,
             commands::register_all_browsers,

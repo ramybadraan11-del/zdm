@@ -60,7 +60,40 @@ async fn main() -> io::Result<()> {
 
         if let Ok(msg) = serde_json::from_slice::<serde_json::Value>(&buffer) {
             // Forward to ZDM Desktop local IPC port (default 46800)
-            let forwarded = if let Ok(mut stream) = TcpStream::connect("127.0.0.1:46800").await {
+            let mut stream_res = TcpStream::connect("127.0.0.1:46800").await;
+            if stream_res.is_err() {
+                // If ZDM is not running, auto-launch it just like IDM
+                let home_bin = std::env::var("HOME")
+                    .map(|h| format!("{}/.local/bin/zdm", h))
+                    .unwrap_or_default();
+
+                let mut launched = false;
+                if !home_bin.is_empty() && std::path::Path::new(&home_bin).exists() {
+                    if std::process::Command::new(&home_bin).spawn().is_ok() {
+                        launched = true;
+                    }
+                }
+                if !launched {
+                    for c in ["zdm", "/usr/local/bin/zdm"] {
+                        if std::process::Command::new(c).spawn().is_ok() {
+                            launched = true;
+                            break;
+                        }
+                    }
+                }
+
+                if launched {
+                    for _ in 0..25 {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        if let Ok(s) = TcpStream::connect("127.0.0.1:46800").await {
+                            stream_res = Ok(s);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let forwarded = if let Ok(mut stream) = stream_res {
                 let payload = serde_json::to_vec(&msg).unwrap_or_default();
                 let _ = stream.write_all(&payload).await;
                 let _ = stream.write_all(b"\n").await;

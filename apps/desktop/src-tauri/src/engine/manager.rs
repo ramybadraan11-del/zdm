@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+use tokio::io::AsyncBufReadExt;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
@@ -150,6 +151,122 @@ impl DownloadManager {
         Ok(item)
     }
 
+    pub async fn start_video_download(
+        &self,
+        url: &str,
+        format_id: &str,
+        title: &str,
+        ext: &str,
+        is_audio: bool,
+        est_size: Option<u64>,
+        custom_filename: Option<String>,
+        force_overwrite: bool,
+    ) -> Result<DownloadItem> {
+        let id = Uuid::new_v4().to_string();
+        let category = if is_audio { "Audio" } else { "Video" };
+        let filename = if let Some(cf) = custom_filename {
+            cf
+        } else {
+            let clean_title = title.replace(|c: char| !c.is_alphanumeric() && c != ' ' && c != '-' && c != '_', "_");
+            format!("{}.{}", clean_title.trim(), ext)
+        };
+
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
+        let save_dir = PathBuf::from(home).join("Downloads").join("ZDM").join(category);
+        let _ = tokio::fs::create_dir_all(&save_dir).await;
+        let save_path = save_dir.join(&filename).to_string_lossy().to_string();
+
+        let item = DownloadItem {
+            id: id.clone(),
+            url: url.to_string(),
+            filename: filename.clone(),
+            save_path: save_path.clone(),
+            total_size: est_size.unwrap_or(0),
+            downloaded_size: 0,
+            status: DownloadStatus::Downloading,
+            category: category.to_string(),
+            speed_bps: 0,
+            eta_seconds: 0,
+            progress_percent: 0.0,
+            connections: 1,
+            segments: vec![],
+            supports_range: true,
+            etag: None,
+            referer: None,
+            created_at: chrono::Utc::now().timestamp(),
+            finished_at: None,
+            error_message: None,
+        };
+
+        self.db.insert_download(&item)?;
+
+        // Broadcast download started so UI updates immediately
+        Self::static_emit_event(&self.app_handle, "download_started", serde_json::json!({ "id": id }));
+
+        let db_clone = Arc::clone(&self.db);
+        let app_handle_clone = Arc::clone(&self.app_handle);
+        let id_str = id.clone();
+        let url_str = url.to_string();
+        let format_id_str = format_id.to_string();
+        let save_path_str = save_path.clone();
+        let filename_str = filename.clone();
+        let category_str = category.to_string();
+        let initial_est_size = est_size.unwrap_or(0);
+
+        tokio::spawn(async move {
+            let yt_res = Self::run_ytdlp_stream(
+                &id_str,
+                &url_str,
+                &format_id_str,
+                &save_path_str,
+                is_audio,
+                initial_est_size,
+                force_overwrite,
+                Arc::clone(&db_clone),
+                Arc::clone(&app_handle_clone),
+            )
+            .await;
+
+            match yt_res {
+                Ok(_) => {
+                    let file_size = std::fs::metadata(&save_path_str).map(|m| m.len()).unwrap_or(initial_est_size);
+                    let now = chrono::Utc::now().timestamp();
+                    let final_sz = if file_size > 0 { file_size } else { initial_est_size };
+                    let _ = db_clone.mark_completed_with_size(&id_str, final_sz, now);
+
+                    // Emit 100% progress
+                    Self::static_emit_event(&app_handle_clone, "download_progress", serde_json::json!({
+                        "id": id_str,
+                        "downloaded_bytes": file_size,
+                        "total_bytes": file_size,
+                        "speed_bps": 0,
+                        "eta_seconds": 0,
+                        "progress_percent": 100.0,
+                        "segments": [],
+                    }));
+
+                    // Emit download_completed with full details for completion popup
+                    Self::static_emit_event(&app_handle_clone, "download_completed", serde_json::json!({
+                        "id": id_str,
+                        "filename": filename_str,
+                        "save_path": save_path_str,
+                        "total_size": file_size,
+                        "category": category_str,
+                    }));
+                }
+                Err(err) => {
+                    let _ = db_clone.set_status(&id_str, DownloadStatus::Error);
+                    Self::static_emit_event(&app_handle_clone, "download_error", serde_json::json!({
+                        "id": id_str,
+                        "error": err.to_string()
+                    }));
+                }
+            }
+        });
+
+        Ok(item)
+    }
+
     pub async fn start_download(&self, id: &str) -> Result<()> {
         let downloads = self.db.get_all_downloads()?;
         let item = downloads
@@ -166,10 +283,17 @@ impl DownloadManager {
 
         self.db.set_status(id, DownloadStatus::Downloading)?;
 
+        // Broadcast download started so UI updates and opens floating progress window
+        Self::static_emit_event(&self.app_handle, "download_started", serde_json::json!({ "id": id }));
+
         let db_clone = Arc::clone(&self.db);
         let active_cancels_clone = Arc::clone(&self.active_cancels);
         let app_handle_clone = Arc::clone(&self.app_handle);
         let id_str = id.to_string();
+        let item_filename = item.filename.clone();
+        let item_save_path = item.save_path.clone();
+        let item_total_size = item.total_size;
+        let item_category = item.category.clone();
 
         tokio::spawn(async move {
             let res = Self::run_download_loop(
@@ -186,7 +310,13 @@ impl DownloadManager {
                 Ok(true) => {
                     let now = chrono::Utc::now().timestamp();
                     let _ = db_clone.mark_completed(&id_str, now);
-                    Self::static_emit_event(&app_handle_clone, "download_completed", serde_json::json!({ "id": id_str }));
+                    Self::static_emit_event(&app_handle_clone, "download_completed", serde_json::json!({
+                        "id": id_str,
+                        "filename": item_filename,
+                        "save_path": item_save_path,
+                        "total_size": item_total_size,
+                        "category": item_category,
+                    }));
                 }
                 Ok(false) => {
                     let _ = db_clone.set_status(&id_str, DownloadStatus::Paused);
@@ -481,5 +611,169 @@ impl DownloadManager {
         let _ = db.update_progress(&item.id, final_bytes, &DownloadStatus::Completed);
 
         Ok(true)
+    }
+
+    async fn run_ytdlp_stream(
+        id: &str,
+        url: &str,
+        format_id: &str,
+        save_path: &str,
+        is_audio: bool,
+        est_total: u64,
+        force_overwrite: bool,
+        db: Arc<Database>,
+        app_handle: Arc<RwLock<Option<AppHandle>>>,
+    ) -> Result<()> {
+        let yt_dlp_path = crate::video::ensure_yt_dlp().await?;
+
+        let mut cmd = tokio::process::Command::new(&yt_dlp_path);
+        cmd.arg("--newline")
+           .arg("--progress-template")
+           .arg("download:ZDM_PROG:%(progress._percent_str)s:::%(progress._speed_str)s:::%(progress._eta_str)s:::%(progress.downloaded_bytes)s:::%(progress.total_bytes)s");
+
+        if force_overwrite {
+            cmd.arg("--force-overwrites");
+        }
+
+        if is_audio {
+            cmd.arg("-x")
+               .arg("--audio-format").arg("mp3")
+               .arg("-f").arg("bestaudio/best");
+        } else if format_id.starts_with("video_") {
+            if let Ok(h) = format_id.trim_start_matches("video_").parse::<u64>() {
+                cmd.arg("-f").arg(format!("bestvideo[height<={}]+bestaudio/best[height<={}]/best", h, h));
+            } else {
+                cmd.arg("-f").arg("bestvideo+bestaudio/best");
+            }
+            cmd.arg("--merge-output-format").arg("mp4");
+        } else {
+            cmd.arg("-f").arg("bestvideo+bestaudio/best")
+               .arg("--merge-output-format").arg("mp4");
+        }
+
+        // Locate ffmpeg if available
+        if let Ok(ff_out) = tokio::process::Command::new("which").arg("ffmpeg").output().await {
+            if ff_out.status.success() {
+                let ff_path = String::from_utf8_lossy(&ff_out.stdout).trim().to_string();
+                if !ff_path.is_empty() {
+                    cmd.arg("--ffmpeg-location").arg(ff_path);
+                }
+            }
+        }
+
+        // Pass node JS runtime if available
+        if let Ok(node_out) = tokio::process::Command::new("which").arg("node").output().await {
+            if node_out.status.success() {
+                let node_path = String::from_utf8_lossy(&node_out.stdout).trim().to_string();
+                if !node_path.is_empty() {
+                    cmd.arg("--js-runtimes").arg(format!("node:{}", node_path));
+                }
+            }
+        }
+
+        cmd.arg("-o").arg(save_path);
+        cmd.arg(url);
+
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(|e| anyhow!("Failed to spawn yt-dlp: {}", e))?;
+        let stdout = child.stdout.take().ok_or_else(|| anyhow!("No stdout on yt-dlp"))?;
+        let mut reader = tokio::io::BufReader::new(stdout).lines();
+
+        let mut accumulated_bytes: u64 = 0;
+        let mut prev_stream_downloaded: u64 = 0;
+        let mut last_emit = Instant::now();
+        let mut total_size = est_total;
+
+        while let Ok(Some(line)) = reader.next_line().await {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("ZDM_PROG:") {
+                let parts: Vec<&str> = rest.split(":::").map(|s| s.trim()).collect();
+                if parts.len() >= 5 {
+                    let raw_pct = parts[0].trim_end_matches('%').trim().parse::<f32>().unwrap_or(0.0);
+                    let speed_bps = parse_speed_to_bps(parts[1]);
+                    let eta_seconds = parse_eta_seconds(parts[2]);
+                    let downloaded = parts[3].parse::<u64>().unwrap_or(0);
+                    let tot = parts[4].parse::<u64>().unwrap_or(0);
+                    if tot > 0 && tot > total_size {
+                        total_size = tot;
+                    }
+
+                    // Handle multi-stream transition (e.g. video DASH stream then audio DASH stream)
+                    if downloaded < prev_stream_downloaded && prev_stream_downloaded > 0 {
+                        accumulated_bytes += prev_stream_downloaded;
+                    }
+                    prev_stream_downloaded = downloaded;
+
+                    let current_total_dl = accumulated_bytes + downloaded;
+                    if current_total_dl > total_size && total_size > 0 {
+                        total_size = current_total_dl;
+                    }
+
+                    let computed_pct = if total_size > 0 && current_total_dl > 0 {
+                        ((current_total_dl as f32 / total_size as f32) * 100.0).min(99.0)
+                    } else if raw_pct > 0.0 {
+                        raw_pct
+                    } else {
+                        0.0
+                    };
+
+                    if last_emit.elapsed() >= Duration::from_millis(100) {
+                        last_emit = Instant::now();
+                        Self::static_emit_event(&app_handle, "download_progress", serde_json::json!({
+                            "id": id,
+                            "downloaded_bytes": current_total_dl,
+                            "total_bytes": total_size,
+                            "speed_bps": speed_bps,
+                            "eta_seconds": eta_seconds,
+                            "progress_percent": computed_pct,
+                            "segments": [],
+                        }));
+
+                        let _ = db.update_progress(id, current_total_dl, &DownloadStatus::Downloading);
+                    }
+                }
+            }
+        }
+
+        let status = child.wait().await.map_err(|e| anyhow!("Failed waiting for yt-dlp: {}", e))?;
+        if !status.success() {
+            return Err(anyhow!("yt-dlp exited with non-zero status"));
+        }
+
+        Ok(())
+    }
+}
+
+fn parse_speed_to_bps(speed_str: &str) -> u64 {
+    let s = speed_str.trim().to_uppercase();
+    if s.ends_with("MIB/S") || s.ends_with("MB/S") {
+        let num: f64 = s.replace("MIB/S", "").replace("MB/S", "").trim().parse().unwrap_or(0.0);
+        (num * 1024.0 * 1024.0) as u64
+    } else if s.ends_with("KIB/S") || s.ends_with("KB/S") {
+        let num: f64 = s.replace("KIB/S", "").replace("KB/S", "").trim().parse().unwrap_or(0.0);
+        (num * 1024.0) as u64
+    } else if s.ends_with("GIB/S") || s.ends_with("GB/S") {
+        let num: f64 = s.replace("GIB/S", "").replace("GB/S", "").trim().parse().unwrap_or(0.0);
+        (num * 1024.0 * 1024.0 * 1024.0) as u64
+    } else {
+        0
+    }
+}
+
+fn parse_eta_seconds(eta_str: &str) -> u64 {
+    let parts: Vec<&str> = eta_str.split(':').collect();
+    if parts.len() == 2 {
+        let mins: u64 = parts[0].parse().unwrap_or(0);
+        let secs: u64 = parts[1].parse().unwrap_or(0);
+        mins * 60 + secs
+    } else if parts.len() == 3 {
+        let hours: u64 = parts[0].parse().unwrap_or(0);
+        let mins: u64 = parts[1].parse().unwrap_or(0);
+        let secs: u64 = parts[2].parse().unwrap_or(0);
+        hours * 3600 + mins * 60 + secs
+    } else {
+        0
     }
 }

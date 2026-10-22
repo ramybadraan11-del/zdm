@@ -82,7 +82,15 @@ async function sendViaHttp(message) {
 
 // Receive messages from content script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === "download_media") {
+  if (msg.action === "open_video_modal") {
+    sendToZdm({
+      type: "open_video_modal",
+      url: msg.url,
+      title: msg.title || "",
+      referer: sender.tab?.url || "",
+    });
+    sendResponse({ status: "modal_opened" });
+  } else if (msg.action === "download_media") {
     sendToZdm({
       type: "add_download",
       url: msg.url,

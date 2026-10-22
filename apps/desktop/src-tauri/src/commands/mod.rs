@@ -72,6 +72,74 @@ pub async fn download_video_stream(url: String, format_id: String, save_path: St
     download_with_yt_dlp(&url, &format_id, &save_path).await.map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+pub struct FileConflictInfo {
+    pub exists: bool,
+    pub existing_path: String,
+    pub existing_size: u64,
+    pub suggested_name: String,
+}
+
+#[tauri::command]
+pub fn check_file_conflict(filename: String, category: String) -> Result<FileConflictInfo, String> {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
+    let save_dir = std::path::PathBuf::from(home).join("Downloads").join("ZDM").join(&category);
+    let target_file = save_dir.join(&filename);
+
+    if target_file.exists() {
+        let size = std::fs::metadata(&target_file).map(|m| m.len()).unwrap_or(0);
+        let stem = target_file.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let ext = target_file.extension().and_then(|s| s.to_str()).unwrap_or("");
+        let mut counter = 1;
+        let mut suggested = format!("{} ({}).{}", stem, counter, ext);
+        while save_dir.join(&suggested).exists() {
+            counter += 1;
+            suggested = format!("{} ({}).{}", stem, counter, ext);
+        }
+
+        Ok(FileConflictInfo {
+            exists: true,
+            existing_path: target_file.to_string_lossy().to_string(),
+            existing_size: size,
+            suggested_name: suggested,
+        })
+    } else {
+        Ok(FileConflictInfo {
+            exists: false,
+            existing_path: target_file.to_string_lossy().to_string(),
+            existing_size: 0,
+            suggested_name: filename,
+        })
+    }
+}
+
+#[tauri::command]
+pub async fn start_video_download(
+    url: String,
+    format_id: String,
+    title: String,
+    ext: String,
+    is_audio: bool,
+    est_size: Option<u64>,
+    custom_filename: Option<String>,
+    force_overwrite: Option<bool>,
+    manager: State<'_, Arc<DownloadManager>>,
+) -> Result<DownloadItem, String> {
+    manager
+        .start_video_download(
+            &url,
+            &format_id,
+            &title,
+            &ext,
+            is_audio,
+            est_size,
+            custom_filename,
+            force_overwrite.unwrap_or(false),
+        )
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn update_yt_dlp_engine() -> Result<String, String> {
     let path = ensure_yt_dlp().await.map_err(|e| e.to_string())?;

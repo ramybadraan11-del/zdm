@@ -137,8 +137,13 @@ if [ ! -f "${BIN_DIR}/yt-dlp" ] && ! command -v yt-dlp &> /dev/null; then
     chmod +x "${BIN_DIR}/yt-dlp" 2>/dev/null || true
 fi
 
+# Package extension XPI
+echo -e "   تحديث حزمة إضافة المتصفح (zdm@zyzoom.com.xpi)..."
+mkdir -p "assets"
+(cd "$PROJECT_ROOT/apps/extension" && zip -q -r -FS "$PROJECT_ROOT/assets/zdm@zyzoom.com.xpi" * || true)
+
 # Build production desktop binary with embedded frontend
-if [ ! -f "target/release/zdm" ]; then
+if [ ! -f "target/release/zdm" ] || [ "$1" == "--rebuild" ] || [ "$1" == "-r" ] || [ "apps/desktop/src/components/VideoDownloaderModal.tsx" -nt "target/release/zdm" ]; then
     echo -e "   بناء حزمة الإنتاج مع الواجهة المدمجة (Tauri Production Build)..."
     cd "$PROJECT_ROOT/apps/desktop"
     npm run build
@@ -147,7 +152,7 @@ if [ ! -f "target/release/zdm" ]; then
 fi
 
 # Build Native Messaging Host
-if [ ! -f "target/release/zdm-host" ]; then
+if [ ! -f "target/release/zdm-host" ] || [ "$1" == "--rebuild" ] || [ "$1" == "-r" ]; then
     echo -e "   بناء مضيف المتصفحات (zdm-host)..."
     cargo build --release -p zdm-host
 fi
@@ -176,6 +181,7 @@ install -m 755 "target/release/zdm-host" "${BIN_DIR}/zdm-host"
 
 # Copy extension files to share directory
 cp -r "apps/extension" "${SHARE_DIR}/"
+cp "assets/zdm@zyzoom.com.xpi" "${SHARE_DIR}/zdm@zyzoom.com.xpi"
 
 # Install Icons
 cp "assets/icon-512.png" "${ICONS_DIR}/512x512/apps/zdm.png"
@@ -234,9 +240,12 @@ if [ "$IS_ROOT" -eq 1 ]; then
 fi
 
 # Step 5: Automatically Install Browser Extension for All Browsers
-echo -e "${CYAN}>> [5/5] تثبيت إضافة المتصفح تلقائياً (Chrome / Brave / Edge / Firefox)...${NC}"
+echo -e "${CYAN}>> [5/5] تثبيت إضافة المتصفح تلقائياً (Zen / Firefox / Chrome / Brave / Edge / Chromium)...${NC}"
 
-BROWSERS=(
+CHROME_EXT_ID="cjdipciekhdnndlcpcgjocjbdijdlhnn"
+
+# 1. Chromium-based browsers
+CHROMIUM_BROWSERS=(
     "google-chrome:${REAL_HOME}/.config/google-chrome"
     "chromium:${REAL_HOME}/.config/chromium"
     "brave:${REAL_HOME}/.config/BraveSoftware/Brave-Browser"
@@ -244,7 +253,6 @@ BROWSERS=(
     "vivaldi:${REAL_HOME}/.config/vivaldi"
 )
 
-# Chromium Native Messaging Manifest
 CHROME_MANIFEST=$(cat << EOF
 {
   "name": "com.zyzoom.zdm",
@@ -252,8 +260,8 @@ CHROME_MANIFEST=$(cat << EOF
   "path": "${BIN_DIR}/zdm-host",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://*/",
-    "chrome-extension://com.zyzoom.zdm/"
+    "chrome-extension://${CHROME_EXT_ID}/",
+    "chrome-extension://*/"
   ]
 }
 EOF
@@ -266,7 +274,7 @@ EXTERNAL_EXT_MANIFEST=$(cat << EOF
 EOF
 )
 
-for ENTRY in "${BROWSERS[@]}"; do
+for ENTRY in "${CHROMIUM_BROWSERS[@]}"; do
     BNAME="${ENTRY%%:*}"
     BDIR="${ENTRY##*:}"
 
@@ -274,17 +282,15 @@ for ENTRY in "${BROWSERS[@]}"; do
     echo "$CHROME_MANIFEST" > "${BDIR}/NativeMessagingHosts/com.zyzoom.zdm.json"
 
     mkdir -p "${BDIR}/External Extensions"
-    echo "$EXTERNAL_EXT_MANIFEST" > "${BDIR}/External Extensions/zdm_extension.json"
+    echo "$EXTERNAL_EXT_MANIFEST" > "${BDIR}/External Extensions/${CHROME_EXT_ID}.json"
 
     chown -R "$REAL_USER":"$REAL_USER" "${BDIR}/NativeMessagingHosts" 2>/dev/null || true
     chown -R "$REAL_USER":"$REAL_USER" "${BDIR}/External Extensions" 2>/dev/null || true
     echo -e "   ${GREEN}✓${NC} تم تفعيل الإضافة لمتصفح: ${BOLD}${BNAME}${NC}"
 done
 
-# Firefox Integration
-FF_DIR="${REAL_HOME}/.mozilla"
-mkdir -p "${FF_DIR}/native-messaging-hosts"
-cat << EOF > "${FF_DIR}/native-messaging-hosts/com.zyzoom.zdm.json"
+# 2. Firefox & Zen Browser Native Messaging Hosts
+GECKO_MANIFEST=$(cat << EOF
 {
   "name": "com.zyzoom.zdm",
   "description": "Zyzoom Download Manager (ZDM) Native Messaging Host - Developed by Ramy Badraan",
@@ -295,8 +301,65 @@ cat << EOF > "${FF_DIR}/native-messaging-hosts/com.zyzoom.zdm.json"
   ]
 }
 EOF
-chown -R "$REAL_USER":"$REAL_USER" "${FF_DIR}/native-messaging-hosts" 2>/dev/null || true
-echo -e "   ${GREEN}✓${NC} تم تفعيل الإضافة لمتصفح: ${BOLD}Firefox${NC}"
+)
+
+mkdir -p "${REAL_HOME}/.mozilla/native-messaging-hosts"
+echo "$GECKO_MANIFEST" > "${REAL_HOME}/.mozilla/native-messaging-hosts/com.zyzoom.zdm.json"
+chown -R "$REAL_USER":"$REAL_USER" "${REAL_HOME}/.mozilla/native-messaging-hosts" 2>/dev/null || true
+
+mkdir -p "${REAL_HOME}/.config/zen/native-messaging-hosts"
+echo "$GECKO_MANIFEST" > "${REAL_HOME}/.config/zen/native-messaging-hosts/com.zyzoom.zdm.json"
+chown -R "$REAL_USER":"$REAL_USER" "${REAL_HOME}/.config/zen/native-messaging-hosts" 2>/dev/null || true
+
+# 3. Direct Profile Extensions Injection for Firefox and Zen
+GECKO_PARENTS=(
+    "zen:${REAL_HOME}/.config/zen"
+    "firefox:${REAL_HOME}/.mozilla/firefox"
+)
+
+for ENTRY in "${GECKO_PARENTS[@]}"; do
+    GNAME="${ENTRY%%:*}"
+    GDIR="${ENTRY##*:}"
+    if [ -d "$GDIR" ]; then
+        for P_DIR in "$GDIR"/*; do
+            if [ -d "$P_DIR" ] && [ -f "$P_DIR/prefs.js" ]; then
+                mkdir -p "$P_DIR/extensions"
+                cp "${SHARE_DIR}/zdm@zyzoom.com.xpi" "$P_DIR/extensions/zdm@zyzoom.com.xpi" 2>/dev/null || true
+                chown -R "$REAL_USER":"$REAL_USER" "$P_DIR/extensions" 2>/dev/null || true
+                echo -e "   ${GREEN}✓${NC} تم تثبيت الإضافة في ملف تعريف ${BOLD}${GNAME}${NC} (${P_DIR##*/})"
+            fi
+        done
+    fi
+done
+
+# 4. Enterprise Policies for Silent Auto-Install if writable
+POLICIES_JSON=$(cat << EOF
+{
+  "policies": {
+    "ExtensionSettings": {
+      "zdm@zyzoom.com": {
+        "installation_mode": "force_installed",
+        "install_url": "file://${SHARE_DIR}/zdm@zyzoom.com.xpi"
+      }
+    }
+  }
+}
+EOF
+)
+
+POLICY_DIRS=(
+    "/etc/firefox/policies"
+    "/etc/zen/policies"
+    "/opt/zen-browser-bin/distribution"
+    "/usr/lib/firefox/distribution"
+)
+
+for PDIR in "${POLICY_DIRS[@]}"; do
+    if [ -w "$PDIR" ] || [ "$IS_ROOT" -eq 1 ]; then
+        mkdir -p "$PDIR" 2>/dev/null || true
+        echo "$POLICIES_JSON" > "$PDIR/policies.json" 2>/dev/null || true
+    fi
+done
 
 echo -e "\n${GREEN}${BOLD}============================================================${NC}"
 echo -e "${GREEN}${BOLD}✓ تم تنصيب Zyzoom Download Manager (ZDM) بنجاح على جهازك!${NC}"

@@ -14,6 +14,7 @@ import {
   FileText,
   Package,
   Layers,
+  Maximize2,
 } from 'lucide-react';
 import { DownloadItem } from '../types';
 import { formatBytes, formatSpeed, formatTime, getCategoryBadgeColor } from '../utils/format';
@@ -25,6 +26,7 @@ interface DownloadCardProps {
   onDelete: (id: string) => void;
   onOpenFile: (path: string) => void;
   onOpenFolder: (path: string) => void;
+  onOpenProgressModal?: (id: string) => void;
 }
 
 export const DownloadCard: React.FC<DownloadCardProps> = ({
@@ -34,6 +36,7 @@ export const DownloadCard: React.FC<DownloadCardProps> = ({
   onDelete,
   onOpenFile,
   onOpenFolder,
+  onOpenProgressModal,
 }) => {
   const isDownloading = item.status === 'downloading';
   const isCompleted = item.status === 'completed';
@@ -136,6 +139,16 @@ export const DownloadCard: React.FC<DownloadCardProps> = ({
             <FolderOpen className="w-4 h-4" />
           </button>
 
+          {onOpenProgressModal && (
+            <button
+              onClick={() => onOpenProgressModal(item.id)}
+              title="نافذة تفاصيل التنزيل العائمة"
+              className="w-9 h-9 rounded-xl bg-[#1A2346] hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-400 flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          )}
+
           <button
             onClick={() => onDelete(item.id)}
             title="حذف من القائمة"
@@ -149,11 +162,13 @@ export const DownloadCard: React.FC<DownloadCardProps> = ({
       {/* Progress & Speed Metrics */}
       <div className="flex items-center justify-between text-xs mb-2">
         <div className="flex items-center gap-3">
-          <span className="font-mono font-bold text-cyan-400 text-sm">
-            {item.progress_percent.toFixed(1)}%
+          <span className={`font-mono font-bold text-sm ${isCompleted ? 'text-emerald-400' : 'text-cyan-400'}`}>
+            {isCompleted ? '100.0%' : `${item.progress_percent.toFixed(1)}%`}
           </span>
           <span className="text-slate-400 font-mono">
-            {formatBytes(item.downloaded_size)} / {formatBytes(item.total_size)}
+            {isCompleted
+              ? `${formatBytes(item.total_size)} / ${formatBytes(item.total_size)}`
+              : `${formatBytes(item.downloaded_size)} / ${formatBytes(item.total_size)}`}
           </span>
         </div>
         <div className="flex items-center gap-3 font-mono">
@@ -210,7 +225,7 @@ export const DownloadCard: React.FC<DownloadCardProps> = ({
                   ? 'bg-emerald-400'
                   : 'bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500'
               }`}
-              style={{ width: `${Math.min(100, item.progress_percent)}%` }}
+              style={{ width: isCompleted ? '100%' : `${Math.min(100, Math.max(0, item.progress_percent))}%` }}
             />
           </div>
         )}

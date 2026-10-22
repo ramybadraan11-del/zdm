@@ -140,8 +140,17 @@ impl Database {
     pub fn mark_completed(&self, id: &str, finished_at: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE downloads SET status = 'completed', finished_at = ?1 WHERE id = ?2",
+            "UPDATE downloads SET status = 'completed', downloaded_size = total_size, finished_at = ?1 WHERE id = ?2",
             params![finished_at, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_completed_with_size(&self, id: &str, final_size: u64, finished_at: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET status = 'completed', downloaded_size = ?1, total_size = ?1, finished_at = ?2 WHERE id = ?3",
+            params![final_size as i64, finished_at, id],
         )?;
         Ok(())
     }

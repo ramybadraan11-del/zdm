@@ -1,0 +1,9 @@
+{
+  "name": "com.zyzoom.zdm",
+  "description": "Zyzoom Download Manager (ZDM) Native Messaging Host - Developed by Ramy Badraan",
+  "path": "zdm-host.exe",
+  "type": "stdio",
+  "allowed_extensions": [
+    "zdm@zyzoom.com"
+  ]
+}

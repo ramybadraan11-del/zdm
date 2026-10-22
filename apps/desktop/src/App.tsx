@@ -1,7 +1,7 @@
 //! Zyzoom Download Manager (ZDM) - Main Application
 //! Developed by Ramy Badraan
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Header } from './components/Header';
@@ -11,6 +11,8 @@ import { DownloadCard } from './components/DownloadCard';
 import { AddDownloadModal } from './components/AddDownloadModal';
 import { VideoDownloaderModal } from './components/VideoDownloaderModal';
 import { AboutModal } from './components/AboutModal';
+import { DownloadCompleteModal } from './components/DownloadCompleteModal';
+import { DownloadProgressModal } from './components/DownloadProgressModal';
 import { SettingsView } from './components/SettingsView';
 import { DownloadItem, EngineStats, NewDownloadRequest, UrlMetadata, VideoInfo } from './types';
 import { Inbox, RefreshCw } from 'lucide-react';
@@ -33,7 +35,23 @@ export const App: React.FC = () => {
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const [videoInitialUrl, setVideoInitialUrl] = useState('');
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
+  const [completedDownload, setCompletedDownload] = useState<any | null>(null);
+  const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
+  const [activeProgressId, setActiveProgressId] = useState<string | null>(null);
+  const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
+
+  const activeProgressIdRef = useRef<string | null>(null);
+  const isProgressModalOpenRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    activeProgressIdRef.current = activeProgressId;
+  }, [activeProgressId]);
+
+  useEffect(() => {
+    isProgressModalOpenRef.current = isProgressModalOpen;
+  }, [isProgressModalOpen]);
 
   // Load downloads from Rust backend
   const fetchDownloads = async () => {
@@ -85,8 +103,27 @@ export const App: React.FC = () => {
       }));
     });
 
-    const unlistenCompleted = listen<any>('download_completed', () => {
+    const unlistenStarted = listen<any>('download_started', (event) => {
       fetchDownloads();
+      const id = event.payload?.id;
+      if (id) {
+        setActiveProgressId(id);
+        setIsProgressModalOpen(true);
+      }
+    });
+
+    const unlistenCompleted = listen<any>('download_completed', (event) => {
+      fetchDownloads();
+      const payload = event.payload;
+      if (payload && payload.filename && payload.save_path) {
+        // If floating progress modal is currently open for this download,
+        // it displays the completed state with open buttons.
+        // Otherwise, show the DownloadCompleteModal popup.
+        if (!isProgressModalOpenRef.current || activeProgressIdRef.current !== payload.id) {
+          setCompletedDownload(payload);
+          setIsCompleteModalOpen(true);
+        }
+      }
     });
 
     const unlistenPaused = listen<any>('download_paused', () => {
@@ -101,12 +138,22 @@ export const App: React.FC = () => {
       setIsAddModalOpen(true);
     });
 
+    const unlistenOpenVideoModal = listen<any>('open_video_modal_with_url', (event) => {
+      const u = event.payload?.url;
+      if (u) {
+        setVideoInitialUrl(u);
+        setIsVideoModalOpen(true);
+      }
+    });
+
     return () => {
       unlistenProgress.then((f) => f());
+      unlistenStarted.then((f) => f());
       unlistenCompleted.then((f) => f());
       unlistenPaused.then((f) => f());
       unlistenDeleted.then((f) => f());
       unlistenOpenAdd.then((f) => f());
+      unlistenOpenVideoModal.then((f) => f());
     };
   }, []);
 
@@ -159,9 +206,21 @@ export const App: React.FC = () => {
   };
 
   const handleAddDownload = async (req: NewDownloadRequest) => {
-    await invoke('add_download', { req });
-    await fetchDownloads();
+    try {
+      const res: any = await invoke('add_download', { req });
+      await fetchDownloads();
+      if (res && res.id) {
+        setActiveProgressId(res.id);
+        setIsProgressModalOpen(true);
+      }
+    } catch (err) {
+      console.error('Failed to add download:', err);
+    }
   };
+
+  const activeProgressDownload = useMemo(() => {
+    return downloads.find((d) => d.id === activeProgressId) || null;
+  }, [downloads, activeProgressId]);
 
   const handleQueryVideo = async (url: string): Promise<VideoInfo> => {
     return await invoke('query_video_info', { url });
@@ -286,6 +345,10 @@ export const App: React.FC = () => {
                       onDelete={handleDelete}
                       onOpenFile={handleOpenFile}
                       onOpenFolder={handleOpenFolder}
+                      onOpenProgressModal={(id) => {
+                        setActiveProgressId(id);
+                        setIsProgressModalOpen(true);
+                      }}
                     />
                   ))}
                 </div>
@@ -348,21 +411,36 @@ export const App: React.FC = () => {
 
       <VideoDownloaderModal
         isOpen={isVideoModalOpen}
-        onClose={() => setIsVideoModalOpen(false)}
-        onQueryVideo={handleQueryVideo}
-        onStartDownload={async (url, filename, cat) => {
-          await handleAddDownload({
-            url,
-            filename,
-            category: cat,
-            start_now: true,
-          });
+        onClose={() => {
+          setIsVideoModalOpen(false);
+          setVideoInitialUrl('');
         }}
+        onQueryVideo={handleQueryVideo}
+        initialUrl={videoInitialUrl}
       />
 
       <AboutModal
         isOpen={isAboutModalOpen}
         onClose={() => setIsAboutModalOpen(false)}
+      />
+
+      <DownloadCompleteModal
+        isOpen={isCompleteModalOpen}
+        onClose={() => setIsCompleteModalOpen(false)}
+        download={completedDownload}
+        onOpenFile={handleOpenFile}
+        onOpenFolder={handleOpenFolder}
+      />
+
+      <DownloadProgressModal
+        isOpen={isProgressModalOpen}
+        onClose={() => setIsProgressModalOpen(false)}
+        download={activeProgressDownload}
+        onPause={handlePause}
+        onResume={handleResume}
+        onCancel={handleDelete}
+        onOpenFile={handleOpenFile}
+        onOpenFolder={handleOpenFolder}
       />
     </div>
   );

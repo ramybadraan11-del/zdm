@@ -1,14 +1,15 @@
 //! ZDM Automatic Browser Extension & Host Installer
 //! Developed by Ramy Badraan
 //!
-//! Automatically installs Native Messaging Hosts and registers External Extensions
-//! for Chrome, Chromium, Brave, Edge, Vivaldi, and Firefox on system launch,
-//! and provides instant one-click browser launch with extension loaded.
+//! Automatically installs Native Messaging Hosts and installs extensions
+//! for Chrome, Chromium, Brave, Edge, Vivaldi, Firefox, and Zen Browser.
 
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+pub const CHROME_EXT_ID: &str = "cjdipciekhdnndlcpcgjocjbdijdlhnn";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BrowserStatus {
@@ -25,12 +26,13 @@ pub fn get_installed_browsers_list() -> Vec<BrowserStatus> {
     let home_path = PathBuf::from(home);
 
     let candidates = vec![
+        ("zen", "Zen Browser", home_path.join(".config/zen")),
+        ("firefox", "Mozilla Firefox", home_path.join(".mozilla")),
         ("google-chrome", "Google Chrome", home_path.join(".config/google-chrome")),
         ("brave", "Brave Browser", home_path.join(".config/BraveSoftware/Brave-Browser")),
         ("edge", "Microsoft Edge", home_path.join(".config/microsoft-edge")),
         ("chromium", "Chromium", home_path.join(".config/chromium")),
         ("vivaldi", "Vivaldi", home_path.join(".config/vivaldi")),
-        ("firefox", "Mozilla Firefox", home_path.join(".mozilla")),
     ];
 
     candidates
@@ -55,6 +57,7 @@ fn check_cmd_exists(cmd: &str) -> bool {
         "chromium" => "chromium",
         "vivaldi" => "vivaldi",
         "firefox" => "firefox",
+        "zen" => "zen-browser",
         _ => cmd,
     };
     Command::new("which").arg(check_binary).output().map(|o| o.status.success()).unwrap_or(false)
@@ -68,6 +71,7 @@ pub fn install_browser_integrations() {
 
     let host_path = find_host_binary(&home);
     let extension_path = find_extension_dir(&home);
+    let xpi_path = find_xpi_file(&home);
 
     // 1. Install for Chromium-based browsers
     let chromium_browser_dirs = vec![
@@ -84,8 +88,8 @@ pub fn install_browser_integrations() {
         "path": host_path.to_string_lossy(),
         "type": "stdio",
         "allowed_origins": [
-            "chrome-extension://*/",
-            "chrome-extension://com.zyzoom.zdm/"
+            format!("chrome-extension://{}/", CHROME_EXT_ID),
+            "chrome-extension://*/"
         ]
     });
 
@@ -97,39 +101,68 @@ pub fn install_browser_integrations() {
             let manifest_file = host_dir.join("com.zyzoom.zdm.json");
             let _ = fs::write(&manifest_file, serde_json::to_string_pretty(&chrome_manifest_json).unwrap_or_default());
 
-            // Write External Extension registration (Auto-installs extension in browser)
+            // Write External Extension registration with exact 32-character ID
             if let Some(ext_path) = &extension_path {
                 let ext_dir = dir.join("External Extensions");
                 let _ = fs::create_dir_all(&ext_dir);
                 let ext_manifest = serde_json::json!({
                     "external_path": ext_path.to_string_lossy()
                 });
-                let _ = fs::write(ext_dir.join("zdm_extension.json"), serde_json::to_string_pretty(&ext_manifest).unwrap_or_default());
+                let ext_file = ext_dir.join(format!("{}.json", CHROME_EXT_ID));
+                let _ = fs::write(ext_file, serde_json::to_string_pretty(&ext_manifest).unwrap_or_default());
             }
 
             println!("[ZDM] Registered browser integration for {}", name);
         }
     }
 
-    // 2. Install for Firefox
-    let firefox_dir = home.join(".mozilla");
-    if firefox_dir.exists() {
-        let ff_host_dir = firefox_dir.join("native-messaging-hosts");
-        let _ = fs::create_dir_all(&ff_host_dir);
+    // 2. Install for Firefox and Zen Browser (Direct Profile Extensions Injection)
+    let gecko_parents = vec![
+        ("zen", home.join(".config/zen")),
+        ("firefox", home.join(".mozilla/firefox")),
+    ];
 
-        let firefox_manifest_json = serde_json::json!({
-            "name": "com.zyzoom.zdm",
-            "description": "Zyzoom Download Manager (ZDM) Native Messaging Host - Developed by Ramy Badraan",
-            "path": host_path.to_string_lossy(),
-            "type": "stdio",
-            "allowed_extensions": [
-                "zdm@zyzoom.com"
-            ]
-        });
+    let gecko_manifest_json = serde_json::json!({
+        "name": "com.zyzoom.zdm",
+        "description": "Zyzoom Download Manager (ZDM) Native Messaging Host - Developed by Ramy Badraan",
+        "path": host_path.to_string_lossy(),
+        "type": "stdio",
+        "allowed_extensions": [
+            "zdm@zyzoom.com"
+        ]
+    });
 
-        let ff_manifest_file = ff_host_dir.join("com.zyzoom.zdm.json");
-        let _ = fs::write(&ff_manifest_file, serde_json::to_string_pretty(&firefox_manifest_json).unwrap_or_default());
-        println!("[ZDM] Registered browser integration for Firefox");
+    // Native messaging host for Firefox and Zen
+    let ff_native_dir = home.join(".mozilla/native-messaging-hosts");
+    let _ = fs::create_dir_all(&ff_native_dir);
+    let _ = fs::write(ff_native_dir.join("com.zyzoom.zdm.json"), serde_json::to_string_pretty(&gecko_manifest_json).unwrap_or_default());
+
+    let zen_native_dir = home.join(".config/zen/native-messaging-hosts");
+    let _ = fs::create_dir_all(&zen_native_dir);
+    let _ = fs::write(zen_native_dir.join("com.zyzoom.zdm.json"), serde_json::to_string_pretty(&gecko_manifest_json).unwrap_or_default());
+
+    // Inject XPI directly into every profile directory
+    if let Some(xpi_src) = &xpi_path {
+        for (g_name, g_dir) in &gecko_parents {
+            if g_dir.exists() {
+                if let Ok(entries) = fs::read_dir(g_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            // Check if this is a profile directory
+                            let has_prefs = path.join("prefs.js").exists() || path.join("times.json").exists() || path.join("extensions").exists();
+                            if has_prefs {
+                                let target_ext_dir = path.join("extensions");
+                                let _ = fs::create_dir_all(&target_ext_dir);
+                                let target_xpi = target_ext_dir.join("zdm@zyzoom.com.xpi");
+                                let _ = fs::copy(xpi_src, &target_xpi);
+                                println!("[ZDM] Auto-installed extension for {} profile at {:?}", g_name, target_xpi);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -154,21 +187,27 @@ pub fn launch_browser(browser_id: &str) -> Result<(), String> {
         }
         "chromium" => "chromium",
         "vivaldi" => "vivaldi",
+        "zen" => "zen-browser",
         "firefox" => "firefox",
         _ => "google-chrome",
     };
 
-    let ext_arg = format!("--load-extension={}", ext_dir.to_string_lossy());
-
-    if browser_id == "firefox" {
-        Command::new(binary)
-            .arg("about:debugging#/runtime/this-firefox")
-            .spawn()
-            .map_err(|e| format!("Failed to launch {}: {}", binary, e))?;
+    if browser_id == "firefox" || browser_id == "zen" {
+        if let Some(xpi) = find_xpi_file(&home) {
+            Command::new(binary)
+                .arg(format!("file://{}", xpi.to_string_lossy()))
+                .spawn()
+                .map_err(|e| format!("Failed to launch {}: {}", binary, e))?;
+        } else {
+            Command::new(binary)
+                .arg("about:addons")
+                .spawn()
+                .map_err(|e| format!("Failed to launch {}: {}", binary, e))?;
+        }
     } else {
+        let ext_arg = format!("--load-extension={}", ext_dir.to_string_lossy());
         Command::new(binary)
             .arg(&ext_arg)
-            .arg("chrome://extensions")
             .spawn()
             .map_err(|e| format!("Failed to launch {}: {}", binary, e))?;
     }
@@ -200,6 +239,23 @@ pub fn find_extension_dir(home: &Path) -> Option<PathBuf> {
         PathBuf::from("/usr/share/zdm/extension"),
         home.join(".local/share/zdm/extension"),
         PathBuf::from("apps/extension"),
+    ];
+
+    for c in candidates {
+        if c.exists() {
+            return Some(c);
+        }
+    }
+
+    None
+}
+
+pub fn find_xpi_file(home: &Path) -> Option<PathBuf> {
+    let candidates = vec![
+        PathBuf::from("/usr/local/share/zdm/zdm@zyzoom.com.xpi"),
+        PathBuf::from("/usr/share/zdm/zdm@zyzoom.com.xpi"),
+        home.join(".local/share/zdm/zdm@zyzoom.com.xpi"),
+        PathBuf::from("assets/zdm@zyzoom.com.xpi"),
     ];
 
     for c in candidates {
