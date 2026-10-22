@@ -91,3 +91,11 @@ export interface AppInfo {
   os: string;
   engine: string;
 }
+
+export interface BrowserStatus {
+  id: string;
+  name: string;
+  is_installed: boolean;
+  config_dir: string;
+}
+

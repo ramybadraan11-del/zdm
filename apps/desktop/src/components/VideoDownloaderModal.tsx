@@ -2,6 +2,7 @@
 //! Developed by Ramy Badraan
 
 import React, { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { X, Film, Download, Music, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 import { VideoInfo, VideoFormat } from '../types';
 import { formatBytes, formatTime } from '../utils/format';
@@ -50,11 +51,19 @@ export const VideoDownloaderModal: React.FC<VideoDownloaderModalProps> = ({
     if (!videoInfo || !selectedFormat) return;
     setIsStarting(true);
     try {
-      const downloadUrl = selectedFormat.url || url;
       const cleanTitle = videoInfo.title.replace(/[\/\\?%*:|"<>]/g, '_');
       const filename = `${cleanTitle}.${selectedFormat.ext}`;
       const isAudio = !selectedFormat.vcodec || selectedFormat.vcodec === 'none';
-      await onStartDownload(downloadUrl, filename, isAudio ? 'Audio' : 'Video');
+
+      if (selectedFormat.url && selectedFormat.url.startsWith('http')) {
+        await onStartDownload(selectedFormat.url, filename, isAudio ? 'Audio' : 'Video');
+      } else {
+        await invoke('download_video_stream', {
+          url,
+          formatId: selectedFormat.format_id,
+          savePath: filename,
+        });
+      }
       onClose();
     } catch (err: any) {
       setError(err.toString());

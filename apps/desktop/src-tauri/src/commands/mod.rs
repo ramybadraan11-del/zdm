@@ -1,9 +1,10 @@
 //! ZDM Tauri IPC Commands
 //! Developed by Ramy Badraan
 
+use crate::browser_installer::{get_installed_browsers_list, install_browser_integrations, launch_browser, BrowserStatus};
 use crate::engine::manager::DownloadManager;
 use crate::engine::types::{DownloadItem, EngineStats, NewDownloadRequest, UrlMetadata};
-use crate::video::{query_video, VideoInfo};
+use crate::video::{download_with_yt_dlp, ensure_yt_dlp, query_video, VideoInfo};
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
@@ -64,6 +65,33 @@ pub async fn get_stats(manager: State<'_, Arc<DownloadManager>>) -> Result<Engin
 #[tauri::command]
 pub async fn query_video_info(url: String) -> Result<VideoInfo, String> {
     query_video(&url).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn download_video_stream(url: String, format_id: String, save_path: String) -> Result<(), String> {
+    download_with_yt_dlp(&url, &format_id, &save_path).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_yt_dlp_engine() -> Result<String, String> {
+    let path = ensure_yt_dlp().await.map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn get_browsers() -> Vec<BrowserStatus> {
+    get_installed_browsers_list()
+}
+
+#[tauri::command]
+pub fn register_all_browsers() -> Result<(), String> {
+    install_browser_integrations();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn launch_browser_with_ext(browser_id: String) -> Result<(), String> {
+    launch_browser(&browser_id)
 }
 
 #[tauri::command]

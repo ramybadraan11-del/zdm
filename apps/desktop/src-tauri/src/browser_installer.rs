@@ -2,10 +2,63 @@
 //! Developed by Ramy Badraan
 //!
 //! Automatically installs Native Messaging Hosts and registers External Extensions
-//! for Chrome, Chromium, Brave, Edge, Vivaldi, and Firefox on system launch.
+//! for Chrome, Chromium, Brave, Edge, Vivaldi, and Firefox on system launch,
+//! and provides instant one-click browser launch with extension loaded.
 
+use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BrowserStatus {
+    pub id: String,
+    pub name: String,
+    pub is_installed: bool,
+    pub config_dir: String,
+}
+
+pub fn get_installed_browsers_list() -> Vec<BrowserStatus> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".into());
+    let home_path = PathBuf::from(home);
+
+    let candidates = vec![
+        ("google-chrome", "Google Chrome", home_path.join(".config/google-chrome")),
+        ("brave", "Brave Browser", home_path.join(".config/BraveSoftware/Brave-Browser")),
+        ("edge", "Microsoft Edge", home_path.join(".config/microsoft-edge")),
+        ("chromium", "Chromium", home_path.join(".config/chromium")),
+        ("vivaldi", "Vivaldi", home_path.join(".config/vivaldi")),
+        ("firefox", "Mozilla Firefox", home_path.join(".mozilla")),
+    ];
+
+    candidates
+        .into_iter()
+        .map(|(id, name, path)| {
+            let is_installed = path.exists() || check_cmd_exists(id);
+            BrowserStatus {
+                id: id.to_string(),
+                name: name.to_string(),
+                is_installed,
+                config_dir: path.to_string_lossy().to_string(),
+            }
+        })
+        .collect()
+}
+
+fn check_cmd_exists(cmd: &str) -> bool {
+    let check_binary = match cmd {
+        "google-chrome" => "google-chrome-stable",
+        "brave" => "brave",
+        "edge" => "microsoft-edge",
+        "chromium" => "chromium",
+        "vivaldi" => "vivaldi",
+        "firefox" => "firefox",
+        _ => cmd,
+    };
+    Command::new("which").arg(check_binary).output().map(|o| o.status.success()).unwrap_or(false)
+}
 
 pub fn install_browser_integrations() {
     let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
@@ -13,7 +66,6 @@ pub fn install_browser_integrations() {
         Err(_) => return,
     };
 
-    // Determine host binary location
     let host_path = find_host_binary(&home);
     let extension_path = find_extension_dir(&home);
 
@@ -52,7 +104,6 @@ pub fn install_browser_integrations() {
                 let ext_manifest = serde_json::json!({
                     "external_path": ext_path.to_string_lossy()
                 });
-                // Extension ID file or generic loader
                 let _ = fs::write(ext_dir.join("zdm_extension.json"), serde_json::to_string_pretty(&ext_manifest).unwrap_or_default());
             }
 
@@ -82,8 +133,50 @@ pub fn install_browser_integrations() {
     }
 }
 
+pub fn launch_browser(browser_id: &str) -> Result<(), String> {
+    let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        Ok(h) => PathBuf::from(h),
+        Err(_) => return Err("Could not find user home directory".into()),
+    };
+
+    let ext_dir = find_extension_dir(&home)
+        .ok_or_else(|| "Extension directory not found on system".to_string())?;
+
+    let binary = match browser_id {
+        "google-chrome" => {
+            if check_cmd_exists("google-chrome-stable") { "google-chrome-stable" } else { "google-chrome" }
+        }
+        "brave" => {
+            if check_cmd_exists("brave-browser") { "brave-browser" } else { "brave" }
+        }
+        "edge" => {
+            if check_cmd_exists("microsoft-edge-stable") { "microsoft-edge-stable" } else { "microsoft-edge" }
+        }
+        "chromium" => "chromium",
+        "vivaldi" => "vivaldi",
+        "firefox" => "firefox",
+        _ => "google-chrome",
+    };
+
+    let ext_arg = format!("--load-extension={}", ext_dir.to_string_lossy());
+
+    if browser_id == "firefox" {
+        Command::new(binary)
+            .arg("about:debugging#/runtime/this-firefox")
+            .spawn()
+            .map_err(|e| format!("Failed to launch {}: {}", binary, e))?;
+    } else {
+        Command::new(binary)
+            .arg(&ext_arg)
+            .arg("chrome://extensions")
+            .spawn()
+            .map_err(|e| format!("Failed to launch {}: {}", binary, e))?;
+    }
+
+    Ok(())
+}
+
 fn find_host_binary(home: &Path) -> PathBuf {
-    // Check system-wide paths first, then local user paths
     let candidates = vec![
         PathBuf::from("/usr/local/bin/zdm-host"),
         PathBuf::from("/usr/bin/zdm-host"),
@@ -98,11 +191,10 @@ fn find_host_binary(home: &Path) -> PathBuf {
         }
     }
 
-    // Default to /usr/local/bin/zdm-host
     PathBuf::from("/usr/local/bin/zdm-host")
 }
 
-fn find_extension_dir(home: &Path) -> Option<PathBuf> {
+pub fn find_extension_dir(home: &Path) -> Option<PathBuf> {
     let candidates = vec![
         PathBuf::from("/usr/local/share/zdm/extension"),
         PathBuf::from("/usr/share/zdm/extension"),

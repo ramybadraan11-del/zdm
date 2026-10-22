@@ -97,18 +97,26 @@ echo -e "   النظام المكتشف: ${BOLD}${PRETTY_NAME:-$DISTRO}${NC}"
 
 install_dependencies() {
     if command -v pacman &> /dev/null; then
-        echo -e "   تثبيت مكتبات Arch Linux عبر pacman..."
-        sudo pacman -S --needed --noconfirm webkit2gtk-4.1 libayatana-appindicator openssl base-devel 2>/dev/null || true
+        echo -e "   تثبيت مكتبات Arch Linux ومحركات الوسائط عبر pacman..."
+        sudo pacman -S --needed --noconfirm webkit2gtk-4.1 libayatana-appindicator openssl base-devel yt-dlp ffmpeg 2>/dev/null || true
     elif command -v dnf &> /dev/null; then
-        echo -e "   تثبيت مكتبات Fedora عبر dnf..."
-        sudo dnf install -y webkit2gtk4.1 libayatana-appindicator-gtk3 openssl-devel 2>/dev/null || true
+        echo -e "   تثبيت مكتبات Fedora ومحركات الوسائط عبر dnf..."
+        sudo dnf install -y webkit2gtk4.1 libayatana-appindicator-gtk3 openssl-devel yt-dlp ffmpeg 2>/dev/null || true
     elif command -v apt-get &> /dev/null; then
-        echo -e "   تثبيت مكتبات Debian/Ubuntu عبر apt..."
+        echo -e "   تثبيت مكتبات Debian/Ubuntu ومحركات الوسائط عبر apt..."
         sudo apt-get update -qq
-        sudo apt-get install -y libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libssl-dev build-essential 2>/dev/null || true
+        sudo apt-get install -y libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libssl-dev build-essential yt-dlp ffmpeg 2>/dev/null || true
     elif command -v zypper &> /dev/null; then
-        echo -e "   تثبيت مكتبات openSUSE عبر zypper..."
-        sudo zypper install -y libwebkit2gtk-4_1-0 libayatana-appindicator3-1 2>/dev/null || true
+        echo -e "   تثبيت مكتبات openSUSE ومحركات الوسائط عبر zypper..."
+        sudo zypper install -y libwebkit2gtk-4_1-0 libayatana-appindicator3-1 yt-dlp ffmpeg 2>/dev/null || true
+    fi
+
+    # Ensure standalone yt-dlp is available if package manager didn't install it
+    if ! command -v yt-dlp &> /dev/null; then
+        echo -e "   تحميل النسخة المستقلة من محرك yt-dlp مباشرة من GitHub..."
+        mkdir -p "${BIN_DIR}"
+        curl -L -s https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "${BIN_DIR}/yt-dlp" || true
+        chmod +x "${BIN_DIR}/yt-dlp" 2>/dev/null || true
     fi
 }
 
@@ -117,14 +125,30 @@ if [ "$1" == "--deps" ]; then
 fi
 
 # Step 2: Build Binaries if not already built
-echo -e "${CYAN}>> [2/5] بناء وتجهيز ثنائيات ZDM (Rust Core)...${NC}"
+echo -e "${CYAN}>> [2/5] بناء وتجهيز ثنائيات ZDM (مع دمج الواجهة مسبقاً)...${NC}"
 
 cd "$PROJECT_ROOT"
 
-if [ ! -f "target/release/zdm" ] || [ ! -f "target/release/zdm-host" ]; then
-    echo -e "   بناء الحزمة المصغرة والواجهة المدمجة..."
-    npm --prefix apps/desktop run build
-    npx --prefix apps/desktop tauri build --no-bundle
+# Always ensure yt-dlp is available in binary dir
+if [ ! -f "${BIN_DIR}/yt-dlp" ] && ! command -v yt-dlp &> /dev/null; then
+    echo -e "   تنزيل محرك الفيديو yt-dlp تلقائياً..."
+    mkdir -p "${BIN_DIR}"
+    curl -L -s https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "${BIN_DIR}/yt-dlp" || true
+    chmod +x "${BIN_DIR}/yt-dlp" 2>/dev/null || true
+fi
+
+# Build production desktop binary with embedded frontend
+if [ ! -f "target/release/zdm" ]; then
+    echo -e "   بناء حزمة الإنتاج مع الواجهة المدمجة (Tauri Production Build)..."
+    cd "$PROJECT_ROOT/apps/desktop"
+    npm run build
+    npx tauri build --no-bundle
+    cd "$PROJECT_ROOT"
+fi
+
+# Build Native Messaging Host
+if [ ! -f "target/release/zdm-host" ]; then
+    echo -e "   بناء مضيف المتصفحات (zdm-host)..."
     cargo build --release -p zdm-host
 fi
 
@@ -143,11 +167,12 @@ mkdir -p "$ICONS_DIR/scalable/apps"
 # Step 3: Install Binaries and Assets
 echo -e "${CYAN}>> [3/5] تثبيت الملفات والأيقونات في النظام...${NC}"
 
-cp "target/release/zdm" "${BIN_DIR}/zdm"
-chmod +x "${BIN_DIR}/zdm"
+# Stop any running instances cleanly or use remove-destination to prevent "Text file busy"
+pkill -x zdm 2>/dev/null || true
+sleep 0.5
 
-cp "target/release/zdm-host" "${BIN_DIR}/zdm-host"
-chmod +x "${BIN_DIR}/zdm-host"
+install -m 755 "target/release/zdm" "${BIN_DIR}/zdm"
+install -m 755 "target/release/zdm-host" "${BIN_DIR}/zdm-host"
 
 # Copy extension files to share directory
 cp -r "apps/extension" "${SHARE_DIR}/"

@@ -1,10 +1,18 @@
 //! ZDM Video & YouTube Sniffer Module
 //! Developed by Ramy Badraan
+//!
+//! Automatically verifies and self-heals yt-dlp by downloading it
+//! if missing from the user's system.
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoFormat {
@@ -27,21 +35,104 @@ pub struct VideoInfo {
     pub formats: Vec<VideoFormat>,
 }
 
+/// Locate yt-dlp on the system or auto-download standalone binary if missing
+pub async fn ensure_yt_dlp() -> Result<PathBuf> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".into());
+    let home_path = PathBuf::from(home);
+
+    let candidates = vec![
+        home_path.join(".local/share/zdm/bin/yt-dlp"),
+        home_path.join(".local/bin/yt-dlp"),
+        PathBuf::from("/usr/local/bin/yt-dlp"),
+        PathBuf::from("/usr/bin/yt-dlp"),
+    ];
+
+    for c in &candidates {
+        if c.exists() {
+            return Ok(c.clone());
+        }
+    }
+
+    // Check system PATH
+    if let Ok(output) = Command::new("which").arg("yt-dlp").output().await {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() {
+                return Ok(PathBuf::from(path_str));
+            }
+        }
+    }
+
+    // Auto-download yt-dlp standalone binary
+    println!("[ZDM Video] yt-dlp not found on system. Auto-downloading latest standalone binary...");
+    let target_dir = home_path.join(".local/share/zdm/bin");
+    let _ = fs::create_dir_all(&target_dir);
+    let target_file = target_dir.join("yt-dlp");
+
+    let download_url = if cfg!(windows) {
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+    } else {
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| anyhow!("Failed to build HTTP client for yt-dlp download: {}", e))?;
+
+    let resp = client.get(download_url).send().await
+        .map_err(|e| anyhow!("Failed to download yt-dlp from GitHub releases: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(anyhow!("GitHub returned HTTP {} while downloading yt-dlp", resp.status()));
+    }
+
+    let bytes = resp.bytes().await
+        .map_err(|e| anyhow!("Failed to read yt-dlp download stream: {}", e))?;
+
+    fs::write(&target_file, bytes)
+        .map_err(|e| anyhow!("Failed to write yt-dlp binary to disk: {}", e))?;
+
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&target_file)?.permissions();
+        perms.set_mode(0o755);
+        let _ = fs::set_permissions(&target_file, perms);
+    }
+
+    println!("[ZDM Video] yt-dlp successfully downloaded to {:?}", target_file);
+    Ok(target_file)
+}
+
 pub async fn query_video(url: &str) -> Result<VideoInfo> {
-    // Check if yt-dlp exists
-    let output = Command::new("yt-dlp")
-        .arg("-J")
-        .arg("--no-playlist")
+    let yt_dlp_path = ensure_yt_dlp().await?;
+
+    let mut cmd = Command::new(&yt_dlp_path);
+    cmd.arg("-J").arg("--no-playlist");
+
+    // Pass node JS runtime if available for YouTube player deobfuscation
+    if let Ok(output) = Command::new("which").arg("node").output().await {
+        if output.status.success() {
+            let node_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !node_path.is_empty() {
+                cmd.arg("--js-runtimes").arg(format!("node:{}", node_path));
+            }
+        }
+    }
+
+    let output = cmd
         .arg(url)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
         .await
-        .map_err(|e| anyhow!("yt-dlp execution error (is yt-dlp installed?): {}", e))?;
+        .map_err(|e| anyhow!("Failed to execute {:?}: {}", yt_dlp_path, e))?;
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("yt-dlp failed: {}", err));
+        return Err(anyhow!("yt-dlp extraction error: {}", err));
     }
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout)
@@ -84,4 +175,29 @@ pub async fn query_video(url: &str) -> Result<VideoInfo> {
         uploader,
         formats,
     })
+}
+
+pub async fn download_with_yt_dlp(url: &str, format_id: &str, save_path: &str) -> Result<()> {
+    let yt_dlp_path = ensure_yt_dlp().await?;
+
+    let mut cmd = Command::new(&yt_dlp_path);
+    cmd.arg("-f").arg(format_id)
+       .arg("-o").arg(save_path);
+
+    if let Ok(output) = Command::new("which").arg("node").output().await {
+        if output.status.success() {
+            let node_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !node_path.is_empty() {
+                cmd.arg("--js-runtimes").arg(format!("node:{}", node_path));
+            }
+        }
+    }
+
+    let status = cmd.arg(url).status().await
+        .map_err(|e| anyhow!("Failed to execute yt-dlp downloader: {}", e))?;
+
+    if !status.success() {
+        return Err(anyhow!("yt-dlp failed to complete download"));
+    }
+    Ok(())
 }
