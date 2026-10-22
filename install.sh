@@ -122,8 +122,10 @@ echo -e "${CYAN}>> [2/5] بناء وتجهيز ثنائيات ZDM (Rust Core)...
 cd "$PROJECT_ROOT"
 
 if [ ! -f "target/release/zdm" ] || [ ! -f "target/release/zdm-host" ]; then
-    echo -e "   بناء الحزمة المصغرة عبر Cargo Release..."
-    cargo build --release -p zdm -p zdm-host
+    echo -e "   بناء الحزمة المصغرة والواجهة المدمجة..."
+    npm --prefix apps/desktop run build
+    npx --prefix apps/desktop tauri build --no-bundle
+    cargo build --release -p zdm-host
 fi
 
 # Ensure directories exist
