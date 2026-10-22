@@ -18,8 +18,9 @@ cd "$ROOT_DIR"
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 cargo xwin build --release --target x86_64-pc-windows-msvc -p zdm-host
 
-echo ">> [3/4] تصريف محرك ZDM الرسمي zdm.exe لنظام Windows..."
-cargo xwin build --release --target x86_64-pc-windows-msvc --manifest-path "$ROOT_DIR/apps/desktop/src-tauri/Cargo.toml"
+echo ">> [3/4] تصريف محرك ZDM الرسمي zdm.exe مع دمج الواجهة الإنتاجية بالكامل..."
+cd "$ROOT_DIR/apps/desktop"
+npx tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bundle
 
 echo ">> [4/4] حزم وتوليد ملف التنصيب الكامل Zyzoom_Download_Manager_Setup_v1.0.0.exe..."
 cd "$SCRIPT_DIR"
