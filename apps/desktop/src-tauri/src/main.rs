@@ -44,9 +44,6 @@ fn main() {
     // Automatically register browser extensions and native messaging manifests
     browser_installer::install_browser_integrations();
 
-    // Start local IPC server for browser extension captures
-    ipc::start_ipc_server(Arc::clone(&download_manager));
-
     let manager_for_setup = Arc::clone(&download_manager);
 
     // Check if launched with --minimized or --background (autostart)
@@ -61,6 +58,9 @@ fn main() {
         .manage(download_manager)
         .setup(move |app| {
             manager_for_setup.set_app_handle(app.handle().clone());
+
+            // Start local IPC server for browser extension captures inside Tauri runtime
+            ipc::start_ipc_server(Arc::clone(&manager_for_setup));
 
             let main_window = app.get_webview_window("main").expect("Failed to get main window");
 

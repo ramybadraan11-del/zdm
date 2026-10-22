@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpListener;
 
 pub fn start_ipc_server(manager: Arc<DownloadManager>) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let listener = match TcpListener::bind("127.0.0.1:46800").await {
             Ok(l) => l,
             Err(e) => {
@@ -24,7 +24,7 @@ pub fn start_ipc_server(manager: Arc<DownloadManager>) {
         loop {
             if let Ok((socket, _)) = listener.accept().await {
                 let mgr = Arc::clone(&manager);
-                tokio::spawn(async move {
+                tauri::async_runtime::spawn(async move {
                     let mut reader = BufReader::new(socket);
                     let mut line = String::new();
                     if reader.read_line(&mut line).await.is_ok() {
