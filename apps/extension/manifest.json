@@ -1,13 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "Zyzoom Download Manager (ZDM)",
-  "version": "1.0.0",
-  "description": "Turbo Download Accelerator & Media Sniffer. Developed by Ramy Badraan.",
+  "name": "__MSG_extName__",
+  "version": "1.4.0",
+  "description": "__MSG_extDescription__",
   "author": "Ramy Badraan",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8F5shnYp99sCxXtwV1pE6YDyZpwtnH73pKAyGCupjBgIwMF8oeFs1kgfcn+NqPYPk53AY3IHx4zSmslY1RDYDFzm5in1TriYSN8Cwl+Ld8wEw4naRrpkz+a1SVsa97oolqJ9vNBzMw51IEYiknEusNnAN0dHh4GoACH9TKIEa16cVZISL6eUzwaTImeCTZ6e/rp4M5xSTLPNZDZR4xbsDasIYp7ShMRq/4urY+4dkzrBUecRQeB4FodL70uje6++tIsLKQ7cJa/S+Bl1KD7Ha8SxFizBhD5N6gnX9qOrlEcfPS5ybgY07sAzqRWFngJugRNJOKr1V6KYXkR5v8uvpwIDAQAB",
+  "default_locale": "en",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyhNM4CauoIg12QcI3FOlqfo6cp7jRn/ZGq2LsJittRwndju1PAbEcWpGFZ7FZ4yEqmFkK9RP/MXEzjkP++ZPB2ttWcuLev/VRDAJYzkMYDZ9dFuAfD4n3lQC5gwZ82F1g1fKsgCm6uqYZwqygAjHjgLDKHSrNlSl90uLlSnwqdDEXZftyKV/67W7Ho8S+klkD+hV4VCbcdY31rZyNm6M+LaUchCwMLup80E5iQnf+7ZS+OpGcj0Gtu3YI1pXeiFOevhspZY5v6Ck1HjLQKeIt8HzQNH+MHDoI2q57OQe9qSTN7sA5XOYKcY5rOK8UCPmorKM5pIue8sxKVxMdbRGnwIDAQAB",
   "browser_specific_settings": {
     "gecko": {
-      "id": "zdm@zyzoom.com"
+      "id": "zdm@zyzoom.com",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   },
   "permissions": [
@@ -15,6 +25,7 @@
     "nativeMessaging",
     "contextMenus",
     "storage",
+    "notifications",
     "activeTab"
   ],
   "host_permissions": [
@@ -23,26 +34,40 @@
   ],
   "background": {
     "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "i18n.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle",
       "all_frames": true
     }
   ],
   "action": {
     "default_popup": "popup.html",
+    "default_title": "__MSG_extName__",
     "default_icon": {
       "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
   },
   "icons": {
     "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   }

@@ -1,249 +1,293 @@
-//! AddDownloadModal Component
+//! ZDM Add Download Dialog
 //! Developed by Ramy Badraan
 
-import React, { useState, useEffect } from 'react';
-import { X, Link2, Download, Zap, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { NewDownloadRequest, UrlMetadata } from '../types';
+import React, { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { Link2, Folder, Loader2, CheckCircle2, AlertTriangle, Zap, RotateCcw } from 'lucide-react';
+import { Modal } from './ui';
+import { useI18n } from '../i18n';
+import { NewDownloadRequest, Settings, UrlMetadata } from '../types';
 import { formatBytes } from '../utils/format';
 
-interface AddDownloadModalProps {
-  isOpen: boolean;
+interface Props {
+  open: boolean;
   onClose: () => void;
-  onProbeUrl: (url: string) => Promise<UrlMetadata>;
-  onAddDownload: (req: NewDownloadRequest) => Promise<void>;
+  onAdded: (id: string) => void;
+  settings: Settings;
+  /** Pre-filled URL, e.g. from the browser extension or the clipboard. */
+  initialUrl?: string;
 }
 
-export const AddDownloadModal: React.FC<AddDownloadModalProps> = ({
-  isOpen,
+type ProbeState =
+  | { kind: 'idle' }
+  | { kind: 'probing' }
+  | { kind: 'ok'; meta: UrlMetadata }
+  | { kind: 'error'; message: string };
+
+export const AddDownloadModal: React.FC<Props> = ({
+  open,
   onClose,
-  onProbeUrl,
-  onAddDownload,
+  onAdded,
+  settings,
+  initialUrl,
 }) => {
-  const [url, setUrl] = useState('');
+  const { t } = useI18n();
+  const [url, setUrl] = useState(initialUrl ?? '');
   const [filename, setFilename] = useState('');
-  const [connections, setConnections] = useState<number>(16);
-  const [category, setCategory] = useState('Others');
-  const [totalSize, setTotalSize] = useState<number>(0);
-  const [supportsRange, setSupportsRange] = useState<boolean>(true);
-  const [isProbing, setIsProbing] = useState(false);
-  const [probeError, setProbeError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [folder, setFolder] = useState(''); // empty = auto: route by file type
+  const [connections, setConnections] = useState(settings.default_connections);
+  const [startNow, setStartNow] = useState(true);
+  const [probe, setProbe] = useState<ProbeState>({ kind: 'idle' });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Reset each time the dialog opens so stale values never leak between uses.
   useEffect(() => {
-    if (isOpen) {
-      // Try to read clipboard if it contains a URL
-      navigator.clipboard?.readText().then((text) => {
-        if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
-          setUrl(text);
-          handleProbe(text);
-        }
-      }).catch(() => {});
-    } else {
-      setUrl('');
-      setFilename('');
-      setProbeError(null);
-      setTotalSize(0);
+    if (!open) return;
+    setUrl(initialUrl ?? '');
+    setFilename('');
+    setFolder('');
+    setConnections(settings.default_connections);
+    setStartNow(true);
+    setProbe({ kind: 'idle' });
+    setSubmitError(null);
+    setSubmitting(false);
+  }, [open, initialUrl, settings.download_dir, settings.default_connections]);
+
+  // Probe automatically: showing the real size and range support before the
+  // user commits prevents "why is this 0 bytes?" confusion.
+  useEffect(() => {
+    if (!open) return;
+    const trimmed = url.trim();
+    if (!/^https?:\/\/\S+$/i.test(trimmed)) {
+      setProbe({ kind: 'idle' });
+      return;
     }
-  }, [isOpen]);
 
-  const handleProbe = async (targetUrl: string) => {
-    if (!targetUrl.trim()) return;
-    setIsProbing(true);
-    setProbeError(null);
+    let cancelled = false;
+    setProbe({ kind: 'probing' });
 
-    try {
-      const meta = await onProbeUrl(targetUrl.trim());
-      setFilename(meta.filename);
-      setTotalSize(meta.total_size);
-      setSupportsRange(meta.supports_range);
-      setCategory(meta.category);
-
-      // Set optimal connections
-      if (meta.supports_range && meta.total_size > 500 * 1024 * 1024) {
-        setConnections(32);
-      } else if (meta.supports_range) {
-        setConnections(16);
-      } else {
-        setConnections(1);
+    const timer = window.setTimeout(async () => {
+      try {
+        const meta = await invoke<UrlMetadata>('probe_url', { url: trimmed });
+        if (cancelled) return;
+        setProbe({ kind: 'ok', meta });
+        setFilename((current) => current || meta.filename);
+      } catch (error) {
+        if (cancelled) return;
+        setProbe({ kind: 'error', message: String(error) });
       }
-    } catch (err: any) {
-      setProbeError(err.toString());
-    } finally {
-      setIsProbing(false);
-    }
-  };
+    }, 420); // debounce so typing does not hammer the server
 
-  const handleSubmit = async (startNow: boolean) => {
-    if (!url.trim()) return;
-    setIsSubmitting(true);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [url, open]);
+
+  const pickFolder = async () => {
     try {
-      await onAddDownload({
-        url: url.trim(),
-        filename: filename.trim() || undefined,
-        connections,
-        category,
-        start_now: startNow,
-      });
-      onClose();
-    } catch (err: any) {
-      setProbeError(err.toString());
-    } finally {
-      setIsSubmitting(false);
+      const chosen = await openDialog({ directory: true, multiple: false, defaultPath: folder || undefined });
+      if (typeof chosen === 'string') setFolder(chosen);
+    } catch {
+      /* the dialog plugin may be unavailable: keep the typed path */
     }
   };
 
-  if (!isOpen) return null;
+  const submit = async () => {
+    const trimmed = url.trim();
+    if (!/^https?:\/\/\S+$/i.test(trimmed)) {
+      setSubmitError(t('invalidUrl'));
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    const request: NewDownloadRequest = {
+      url: trimmed,
+      filename: filename.trim() ? filename.trim() : undefined,
+      save_path: folder.trim() ? folder.trim() : undefined,
+      connections,
+      start_now: startNow,
+    };
+
+    try {
+      const item = await invoke<{ id: string }>('add_download', { req: request });
+      onAdded(item.id);
+      onClose();
+    } catch (error) {
+      setSubmitError(String(error));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const canSubmit = probe.kind !== 'probing' && !submitting && url.trim().length > 8;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm select-none">
-      <div className="bg-[#101730] border border-[#23315D] rounded-3xl w-full max-w-xl p-6 shadow-2xl relative glow-cyan">
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="w-8 h-8 rounded-full bg-[#1A2346] hover:bg-[#253262] text-slate-400 hover:text-white flex items-center justify-center absolute left-5 top-5 transition-colors cursor-pointer"
-        >
-          <X className="w-4 h-4" />
-        </button>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t('newDownloadTitle')}
+      subtitle={t('tagline')}
+      icon={<Link2 size={17} />}
+      locked={submitting}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={submitting} className="btn-ghost h-9 px-3.5 text-[12.5px] font-bold">
+            {t('cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit}
+            className="btn-primary h-9 px-4 text-[12.5px] flex items-center gap-1.5"
+          >
+            {submitting ? <Loader2 size={14} className="anim-spin" /> : <Zap size={14} />}
+            {t('startDownload')}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* URL */}
+        <div>
+          <label htmlFor="zdm-url" className="label block mb-1.5">
+            {t('urlLabel')}
+          </label>
+          <input
+            id="zdm-url"
+            type="url"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && canSubmit) submit();
+            }}
+            placeholder={t('urlPlaceholder')}
+            className="field always-ltr"
+            autoComplete="off"
+            spellCheck={false}
+            dir="ltr"
+          />
 
-        {/* Modal Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-            <Link2 className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-extrabold text-white">إضافة رابط تنزيل جديد</h2>
-            <p className="text-xs text-slate-400">سيقوم محرك ZDM بتقسيم الملف ومضاعفة السرعة</p>
+          {/* Probe result */}
+          <div className="mt-2 min-h-[22px]">
+            {probe.kind === 'probing' ? (
+              <span className="flex items-center gap-1.5 text-[13px] text-inkMuted">
+                <Loader2 size={12} className="anim-spin" />
+                {t('probing')}
+              </span>
+            ) : probe.kind === 'ok' ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+                <span className="flex items-center gap-1 text-emerald-300 font-semibold">
+                  <CheckCircle2 size={12} />
+                  {probe.meta.total_size > 0 ? formatBytes(probe.meta.total_size) : t('probeFailed')}
+                </span>
+                <span className="text-inkMuted">
+                  {probe.meta.supports_range ? t('rangeSupported') : t('rangeUnsupported')}
+                </span>
+                <span className="text-inkMuted mono">{probe.meta.category}</span>
+              </div>
+            ) : probe.kind === 'error' ? (
+              <span className="flex items-start gap-1.5 text-[13px] text-rose-300">
+                <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                <span className="leading-snug">{probe.message}</span>
+              </span>
+            ) : null}
           </div>
         </div>
 
-        {/* Form */}
-        <div className="space-y-4">
-          {/* URL Input */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 text-right">
-              رابط الملف (URL)
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onBlur={() => handleProbe(url)}
-                placeholder="https://example.com/file.zip"
-                className="flex-1 h-11 px-4 rounded-xl bg-[#0B1020] border border-[#23315D] text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-left font-mono"
-                dir="ltr"
-              />
+        {/* Filename */}
+        <div>
+          <label htmlFor="zdm-filename" className="label block mb-1.5">
+            {t('filenameLabel')}
+          </label>
+          <input
+            id="zdm-filename"
+            type="text"
+            value={filename}
+            onChange={(event) => setFilename(event.target.value)}
+            className="field always-ltr"
+            dir="ltr"
+            spellCheck={false}
+          />
+        </div>
+
+        {/* Folder */}
+        <div>
+          <label htmlFor="zdm-folder" className="label block mb-1.5">
+            {t('folderLabel')}
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="zdm-folder"
+              type="text"
+              value={folder}
+              onChange={(event) => setFolder(event.target.value)}
+              className="field always-ltr flex-1"
+              dir="ltr"
+              spellCheck={false}
+              placeholder={t('folderAuto')}
+            />
+            {folder && (
               <button
                 type="button"
-                onClick={() => handleProbe(url)}
-                disabled={isProbing || !url}
-                className="px-4 h-11 rounded-xl bg-[#1C264C] hover:bg-cyan-500/20 text-cyan-400 font-semibold text-xs border border-cyan-500/30 flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                onClick={() => setFolder('')}
+                className="btn-ghost h-10 px-3 flex items-center gap-1.5 text-[12px] font-bold shrink-0"
+                title={t('folderAuto')}
               >
-                {isProbing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                <span>فحص</span>
+                <RotateCcw size={14} />
+                {t('folderAuto')}
               </button>
-            </div>
-          </div>
-
-          {/* Filename Input */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 text-right">
-              اسم الملف
-            </label>
-            <input
-              type="text"
-              value={filename}
-              onChange={(e) => setFilename(e.target.value)}
-              placeholder="اسم الملف الذي سيتم حفظه..."
-              className="w-full h-11 px-4 rounded-xl bg-[#0B1020] border border-[#23315D] text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 text-left"
-              dir="ltr"
-            />
-          </div>
-
-          {/* File Metadata Info Box */}
-          {totalSize > 0 && (
-            <div className="p-3.5 rounded-xl bg-[#0C1226] border border-[#1E2B54] flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                <span className="text-slate-300 font-medium">حجم الملف:</span>
-                <span className="text-cyan-400 font-mono font-bold">{formatBytes(totalSize)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">دعم الاستئناف:</span>
-                <span className={`font-semibold ${supportsRange ? 'text-emerald-400' : 'text-amber-400'}`}>
-                  {supportsRange ? 'مدعوم (Range 206)' : 'اتصال مفرد فقط'}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {probeError && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{probeError}</span>
-            </div>
-          )}
-
-          {/* Parallel Connections Picker */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">
-                عدد قنوات التحميل المتوازية (Parallel Connections)
-              </label>
-              <span className="text-xs font-mono font-bold text-cyan-400">{connections} قنوات</span>
-            </div>
-            <div className="grid grid-cols-5 gap-2">
-              {[1, 4, 8, 16, 32].map((num) => (
-                <button
-                  key={num}
-                  type="button"
-                  onClick={() => setConnections(num)}
-                  disabled={!supportsRange && num > 1}
-                  className={`py-2 rounded-xl text-xs font-mono font-bold transition-all border ${
-                    connections === num
-                      ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md font-black'
-                      : 'bg-[#0B1020] text-slate-300 border-[#23315D] hover:border-cyan-500/50'
-                  } disabled:opacity-30 cursor-pointer`}
-                >
-                  {num} {num === 32 ? 'Turbo' : ''}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Modal Actions */}
-        <div className="flex items-center justify-end gap-3 mt-8 pt-4 border-t border-[#1E294D]">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 h-11 rounded-xl text-slate-400 hover:text-slate-200 text-xs font-bold transition-colors cursor-pointer"
-          >
-            إلغاء
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSubmit(false)}
-            disabled={isSubmitting || !url}
-            className="px-5 h-11 rounded-xl bg-[#1C264C] hover:bg-[#253262] text-slate-200 text-xs font-bold border border-[#2E3E72] transition-colors cursor-pointer"
-          >
-            إضافة للطابور
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSubmit(true)}
-            disabled={isSubmitting || !url}
-            className="px-6 h-11 rounded-xl bg-gradient-to-r from-cyan-400 via-purple-600 to-pink-500 hover:opacity-95 text-slate-950 text-xs font-black flex items-center gap-2 glow-cyan transition-all active:scale-95 cursor-pointer"
-          >
-            {isSubmitting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4 stroke-[3]" />
             )}
-            <span>بدء التحميل الآن</span>
-          </button>
+            <button type="button" onClick={pickFolder} className="btn-ghost h-10 px-3 flex items-center gap-1.5 text-[12px] font-bold shrink-0">
+              <Folder size={14} />
+              {t('browse')}
+            </button>
+          </div>
+          {!folder && <p className="text-[12.5px] text-inkMuted mt-1">{t('folderAutoHint')}</p>}
         </div>
+
+        {/* Connections */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label htmlFor="zdm-conn" className="label">
+              {t('connectionsLabel')}
+            </label>
+            <span className="mono text-[12px] font-bold text-accent2">{connections}</span>
+          </div>
+          <input
+            id="zdm-conn"
+            type="range"
+            min={1}
+            max={32}
+            value={connections}
+            onChange={(event) => setConnections(Number(event.target.value))}
+            className="w-full accent-cyan-400"
+          />
+          <p className="text-[12.5px] text-inkMuted mt-1 leading-snug">{t('connectionsHint')}</p>
+        </div>
+
+        {/* Start now */}
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={startNow}
+            onChange={(event) => setStartNow(event.target.checked)}
+            className="w-4 h-4 rounded border-line bg-input accent-cyan-400"
+          />
+          <span className="text-[12px] font-semibold text-inkSoft">{t('startNow')}</span>
+        </label>
+
+        {submitError ? (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg border border-rose-400/30 bg-rose-400/5 text-[13.5px] text-rose-200">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <span className="leading-snug">{submitError}</span>
+          </div>
+        ) : null}
       </div>
-    </div>
+    </Modal>
   );
 };

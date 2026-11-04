@@ -1,5 +1,9 @@
-//! Sidebar Component
+//! ZDM Sidebar
 //! Developed by Ramy Badraan
+//!
+//! Slim rail, one accent per state, and a live throughput readout at the bottom.
+//! The nav item's active marker is a small vertical pill that grows in — cheap to
+//! animate (transform only) and legible in both themes.
 
 import React from 'react';
 import {
@@ -7,21 +11,26 @@ import {
   PlayCircle,
   CheckCircle2,
   Film,
-  Magnet,
   Settings,
   Info,
   HardDrive,
-  Sparkles,
+  Activity,
 } from 'lucide-react';
+import { LogoWordmark } from './Logo';
+import { useI18n } from '../i18n';
+import { Key } from '../i18n/dict';
+import { formatBytes, formatSpeed } from '../utils/format';
 
-export type NavTab = 'all' | 'downloading' | 'completed' | 'video' | 'torrents' | 'settings';
+export type NavTab = 'all' | 'active' | 'completed' | 'video' | 'settings';
 
 interface SidebarProps {
   currentTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   activeCount: number;
   completedCount: number;
-  onOpenAboutModal: () => void;
+  totalSpeed: number;
+  diskFree: number;
+  onOpenAbout: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -29,114 +38,113 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   activeCount,
   completedCount,
-  onOpenAboutModal,
+  totalSpeed,
+  diskFree,
+  onOpenAbout,
 }) => {
-  const navItems = [
-    { id: 'all' as NavTab, label: 'كل التنزيلات', icon: Download },
+  const { t } = useI18n();
+
+  const items: { id: NavTab; labelKey: Key; icon: React.ElementType; badge?: number }[] = [
+    { id: 'all', labelKey: 'navAll', icon: Download },
+    { id: 'active', labelKey: 'navActive', icon: PlayCircle, badge: activeCount || undefined },
     {
-      id: 'downloading' as NavTab,
-      label: 'قيد التنزيل',
-      icon: PlayCircle,
-      badge: activeCount > 0 ? activeCount : undefined,
-      badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-    },
-    {
-      id: 'completed' as NavTab,
-      label: 'المكتملة',
+      id: 'completed',
+      labelKey: 'navCompleted',
       icon: CheckCircle2,
-      badge: completedCount > 0 ? completedCount : undefined,
-      badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+      badge: completedCount || undefined,
     },
-    { id: 'video' as NavTab, label: 'تنزيل الفيديو (YouTube)', icon: Film },
-    { id: 'torrents' as NavTab, label: 'ملفات التورنت', icon: Magnet },
-    { id: 'settings' as NavTab, label: 'الإعدادات', icon: Settings },
+    { id: 'video', labelKey: 'navVideo', icon: Film },
+    { id: 'settings', labelKey: 'navSettings', icon: Settings },
   ];
 
   return (
-    <aside className="w-64 border-l border-[#1E294D] bg-[#0A0E1D] flex flex-col justify-between p-4 z-10 select-none">
-      {/* Top Branding */}
-      <div>
-        <div className="flex items-center gap-3 px-3 py-4 mb-4 border-b border-[#1A2342]">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-400 via-purple-600 to-pink-500 p-0.5 glow-cyan shadow-md flex items-center justify-center">
-            <div className="w-full h-full bg-[#0B1020] rounded-[14px] flex items-center justify-center font-black text-xl text-gradient font-mono">
-              Z
-            </div>
-          </div>
-          <div>
-            <h2 className="font-extrabold text-lg text-white leading-tight tracking-wider font-mono">ZDM</h2>
-            <p className="text-[11px] text-slate-400 font-medium">Zyzoom Manager</p>
-          </div>
-        </div>
-
-        {/* Navigation Links */}
-        <nav className="space-y-1.5">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => onSelectTab(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                  isActive
-                    ? 'bg-gradient-to-r from-cyan-500/15 to-purple-600/15 text-white border border-cyan-500/30 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#141B32]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-                  <span>{item.label}</span>
-                </div>
-                {item.badge !== undefined && (
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full border font-mono font-bold ${item.badgeColor}`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
+    <aside className="w-[228px] shrink-0 h-full flex flex-col bg-canvas border-e border-line">
+      <div className="px-4 pt-4 pb-3">
+        <LogoWordmark size={34} subtitle={t('tagline')} />
       </div>
 
-      {/* Bottom Section: Disk Free & Attribution */}
-      <div className="space-y-3 pt-4 border-t border-[#1A2342]">
-        {/* Turbo Engine Status */}
-        <div className="bg-[#121933] border border-[#202B52] rounded-xl p-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center text-cyan-400">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-200">محرك Turbo Direct-Write</p>
-            <p className="text-[10px] text-cyan-400 font-mono">32 Stream • 0ms Lag</p>
-          </div>
-        </div>
+      <nav className="px-2 flex-1 overflow-y-auto" aria-label={t('navAll')}>
+        {items.map((item) => {
+          const Icon = item.icon;
+          const active = currentTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelectTab(item.id)}
+              aria-current={active ? 'page' : undefined}
+              className={`group relative w-full flex items-center gap-2.5 ps-3 pe-2 h-[38px] rounded-lg mb-0.5 text-[12.5px] font-bold transition-colors duration-150 ${
+                active ? 'text-ink' : 'text-inkMuted hover:text-inkSoft'
+              }`}
+            >
+              {/* Hover wash sits behind the label, not on it. */}
+              <span
+                className={`absolute inset-0 rounded-lg transition-opacity duration-150 ${
+                  active ? 'opacity-100 bg-panelHover' : 'opacity-0 group-hover:opacity-100 bg-panelHover/60'
+                }`}
+              />
+              {/* Active marker: scales in from the middle. */}
+              <span
+                className={`absolute start-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-accent2 transition-transform duration-200 ease-smooth ${
+                  active ? 'scale-y-100' : 'scale-y-0'
+                }`}
+              />
 
-        {/* Disk Space Meter */}
-        <div className="bg-[#121933] border border-[#202B52] rounded-xl p-3">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5">
-            <span className="flex items-center gap-1.5 font-medium">
-              <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
-              <span>المساحة المتاحة</span>
-            </span>
-            <span className="text-slate-200 font-mono font-bold">142.8 GB</span>
-          </div>
-          <div className="w-full h-1.5 bg-[#1B254A] rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-cyan-400 to-purple-500 w-[68%] rounded-full"></div>
-          </div>
-        </div>
+              <Icon
+                size={16}
+                className={`relative shrink-0 transition-colors ${
+                  active ? 'text-accent2' : 'text-inkMuted group-hover:text-inkSoft'
+                }`}
+              />
+              <span className="relative flex-1 text-start truncate">{t(item.labelKey)}</span>
+              {item.badge ? (
+                <span className="relative mono text-[12px] font-bold px-1.5 py-0.5 rounded-md bg-panel text-inkMuted border border-line">
+                  {item.badge}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
 
-        {/* Developer Attribution Link */}
-        <button
-          onClick={onOpenAboutModal}
-          className="w-full py-2 px-3 rounded-lg hover:bg-[#141B32] transition-colors flex items-center justify-between text-xs text-slate-400 group cursor-pointer"
-        >
+      {/* Live engine readout */}
+      <div className="px-2.5 pb-2.5 space-y-2">
+        <div className="panel-inset px-2.5 py-2.5 space-y-2">
           <div className="flex items-center gap-2">
-            <Info className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-400" />
-            <span className="group-hover:text-slate-200">عن البرنامج والحقوق</span>
+            <Activity
+              size={13}
+              className={totalSpeed > 0 ? 'text-accent2' : 'text-inkMuted'}
+            />
+            <span className="text-[11px] font-bold uppercase tracking-[0.09em] text-inkMuted flex-1 truncate">
+              {t('speed')}
+            </span>
+            <span
+              className={`mono text-[13.5px] font-bold ${
+                totalSpeed > 0 ? 'text-accent2' : 'text-inkMuted'
+              }`}
+              dir="ltr"
+            >
+              {totalSpeed > 0 ? formatSpeed(totalSpeed) : '—'}
+            </span>
           </div>
-          <span className="text-[10px] text-cyan-400 font-mono font-semibold">Ramy Badraan</span>
+          <div className="flex items-center gap-2">
+            <HardDrive size={13} className="text-inkMuted shrink-0" />
+            <span className="text-[11px] font-bold uppercase tracking-[0.09em] text-inkMuted flex-1 truncate">
+              {t('freeSpace')}
+            </span>
+            <span className="mono text-[12.5px] font-semibold text-inkSoft" dir="ltr">
+              {diskFree > 0 ? formatBytes(diskFree, 0) : '—'}
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onOpenAbout}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[13px] text-inkMuted hover:text-inkSoft hover:bg-panelHover/60 transition-colors"
+        >
+          <Info size={12.5} />
+          <span className="truncate">{t('navAbout')}</span>
         </button>
       </div>
     </aside>

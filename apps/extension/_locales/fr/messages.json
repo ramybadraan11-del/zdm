@@ -1,0 +1,18 @@
+{
+  "extName": { "message": "Zyzoom Download Manager (ZDM)" },
+  "extDescription": { "message": "Accélérateur de téléchargement et détecteur de vidéos. Envoie les téléchargements directement à l'application ZDM." },
+  "float_button": { "message": "Télécharger avec ZDM" },
+  "app_offline": { "message": "ZDM n'est pas démarré — lancez-le puis réessayez" },
+  "menu_download_link": { "message": "Télécharger avec ZDM" },
+  "menu_download_video": { "message": "Télécharger cette vidéo avec ZDM" },
+  "menu_open_app": { "message": "Ouvrir ZDM" },
+  "notify_error_title": { "message": "ZDM" },
+  "notify_error_body": { "message": "Impossible de démarrer le téléchargement" },
+  "popup_title": { "message": "Zyzoom Download Manager" },
+  "popup_status_online": { "message": "Connecté à ZDM" },
+  "popup_status_offline": { "message": "ZDM est fermé" },
+  "popup_capture": { "message": "Intercepter les téléchargements du navigateur" },
+  "popup_capture_hint": { "message": "Les téléchargements confirmés sont confiés à ZDM. Si ZDM est fermé, le navigateur continue normalement." },
+  "popup_open": { "message": "Ouvrir ZDM" },
+  "popup_help": { "message": "Ouvrez la page des extensions, activez le mode développeur puis « Charger l'extension non empaquetée » si le navigateur n'a pas installé ZDM automatiquement." }
+}

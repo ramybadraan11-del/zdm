@@ -1,125 +1,103 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8">
-  <title>ZDM Extension</title>
-  <style>
-    body {
-      width: 320px;
-      margin: 0;
-      padding: 16px;
-      background: #0B1020;
-      color: #E8ECFF;
-      font-family: 'Cairo', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      box-sizing: border-box;
-      user-select: none;
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid #1E294D;
-      padding-bottom: 12px;
-      margin-bottom: 12px;
-    }
-    .logo-badge {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .z-box {
-      width: 28px;
-      height: 28px;
-      background: linear-gradient(135deg, #00F5FF, #7C4DFF);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 900;
-      color: #0B1020;
-      font-size: 14px;
-    }
-    .title {
-      font-weight: 800;
-      font-size: 15px;
-      color: #FFF;
-    }
-    .status-badge {
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 12px;
-      background: rgba(16, 185, 129, 0.15);
-      color: #10B981;
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      font-weight: bold;
-    }
-    .switch-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: #121933;
-      border: 1px solid #1E294D;
-      padding: 10px 12px;
-      border-radius: 12px;
-      margin-bottom: 12px;
-      font-size: 13px;
-    }
-    .btn {
-      width: 100%;
-      padding: 10px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #00F5FF, #7C4DFF);
-      color: #0B1020;
-      font-weight: 800;
-      font-size: 13px;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      transition: opacity 0.2s;
-    }
-    .btn:hover {
-      opacity: 0.92;
-    }
-    .footer {
-      margin-top: 14px;
-      text-align: center;
-      font-size: 11px;
-      color: #64748B;
-      border-top: 1px solid #1A2346;
-      padding-top: 8px;
-    }
-    .author {
-      color: #00F5FF;
-      font-weight: bold;
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="logo-badge">
-      <div class="z-box">Z</div>
-      <div class="title">ZDM Turbo</div>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ZDM</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1120;
+        --card: #121a2e;
+        --line: #1e2b47;
+        --text: #e8f0ff;
+        --muted: #93a4c4;
+        --cyan: #38bdf8;
+        --violet: #8b5cf6;
+        --ok: #34d399;
+        --warn: #fbbf24;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        width: 316px;
+        padding: 14px;
+        background: radial-gradient(120% 100% at 10% 0%, #16233d 0%, var(--bg) 55%);
+        color: var(--text);
+        font: 13px/1.45 'Cairo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+      .mark {
+        width: 34px; height: 34px; border-radius: 11px;
+        display: grid; place-items: center;
+        background: linear-gradient(140deg, var(--cyan), var(--violet));
+        color: #04101f; font-weight: 900; font-size: 16px;
+      }
+      h1 { font-size: 13.5px; margin: 0; letter-spacing: 0.3px; }
+      .sub { font-size: 11px; color: var(--muted); }
+      .status {
+        display: flex; align-items: center; gap: 7px;
+        padding: 8px 10px; margin-bottom: 12px;
+        border: 1px solid var(--line); border-radius: 11px; background: var(--card);
+        font-size: 12px; font-weight: 600;
+      }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+      .dot.on { background: var(--ok); box-shadow: 0 0 10px rgba(52, 211, 153, 0.6); }
+      .row {
+        display: flex; align-items: flex-start; gap: 10px;
+        padding: 10px; border: 1px solid var(--line); border-radius: 11px;
+        background: var(--card); margin-bottom: 9px;
+      }
+      .row label { font-weight: 600; font-size: 12px; }
+      .hint { color: var(--muted); font-size: 10.5px; margin-top: 3px; line-height: 1.4; }
+      input[type='checkbox'] {
+        appearance: none; width: 34px; height: 19px; border-radius: 999px;
+        background: #24314f; position: relative; cursor: pointer; flex: 0 0 auto;
+        transition: background 0.16s ease; margin-top: 2px;
+      }
+      input[type='checkbox']::after {
+        content: ''; position: absolute; top: 2px; left: 2px;
+        width: 15px; height: 15px; border-radius: 50%;
+        background: #cfe0f7; transition: transform 0.16s ease;
+      }
+      input[type='checkbox']:checked { background: linear-gradient(120deg, var(--cyan), var(--violet)); }
+      input[type='checkbox']:checked::after { transform: translateX(15px); background: #06101f; }
+      button {
+        width: 100%; padding: 9px 12px; border-radius: 11px; border: 0;
+        background: linear-gradient(120deg, var(--cyan), var(--violet));
+        color: #05101f; font-weight: 800; font-size: 12.5px; cursor: pointer;
+        transition: filter 0.16s ease;
+      }
+      button:hover { filter: brightness(1.08); }
+      .help { color: var(--muted); font-size: 10.5px; line-height: 1.5; margin-top: 10px; }
+      html[dir='rtl'] .hint, html[dir='rtl'] .help { text-align: right; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="mark">Z</div>
+      <div>
+        <h1 id="title">Zyzoom Download Manager</h1>
+        <div class="sub" id="author">Ramy Badraan</div>
+      </div>
+    </header>
+
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span id="statusText">…</span>
     </div>
-    <div class="status-badge" id="statusIndicator">متصل بالتطبيق</div>
-  </div>
 
-  <div class="switch-row">
-    <span>التقاط التنزيلات تلقائياً</span>
-    <input type="checkbox" id="captureToggle" checked />
-  </div>
+    <div class="row">
+      <input type="checkbox" id="captureToggle" />
+      <div>
+        <label for="captureToggle" id="captureLabel">Take over browser downloads</label>
+        <div class="hint" id="captureHint"></div>
+      </div>
+    </div>
 
-  <button class="btn" id="openZdmBtn">
-    🚀 فتح نافذة ZDM الرئيسية
-  </button>
+    <button id="openBtn">Open ZDM</button>
+    <div class="help" id="help"></div>
 
-  <div class="footer">
-    Zyzoom Download Manager<br/>
-    Developed by <span class="author">Ramy Badraan</span>
-  </div>
-
-  <script src="popup.js"></script>
-</body>
+    <script src="popup.js"></script>
+  </body>
 </html>

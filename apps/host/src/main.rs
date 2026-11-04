@@ -4,7 +4,7 @@
 //! Receives native messaging packets from Chromium & Firefox extensions
 //! and forwards them to the running ZDM Desktop core over local socket/IPC.
 
-use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Write};
 use tokio::io::AsyncWriteExt;
@@ -31,10 +31,31 @@ struct HostResponse {
     author: String,
 }
 
+/// Launch the desktop app with every standard stream detached.
+///
+/// Returns an error only when the process cannot be spawned at all.
+fn spawn_detached(program: &str) -> io::Result<()> {
+    use std::process::Stdio;
+
+    let mut cmd = std::process::Command::new(program);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // 0x00000008 = DETACHED_PROCESS, 0x08000000 = CREATE_NO_WINDOW.
+        cmd.creation_flags(0x0000_0008 | 0x0800_0000);
+    }
+
+    cmd.spawn().map(|_| ())
+}
+
 fn send_response(response: &HostResponse) -> io::Result<()> {
     let json_bytes = serde_json::to_vec(response)?;
     let mut stdout = io::stdout().lock();
-    stdout.write_u32::<NativeEndian>(json_bytes.len() as u32)?;
+    stdout.write_u32::<LittleEndian>(json_bytes.len() as u32)?;
     stdout.write_all(&json_bytes)?;
     stdout.flush()
 }
@@ -44,7 +65,7 @@ async fn main() -> io::Result<()> {
     let mut stdin = io::stdin().lock();
 
     loop {
-        let length = match stdin.read_u32::<NativeEndian>() {
+        let length = match stdin.read_u32::<LittleEndian>() {
             Ok(len) => len as usize,
             Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
             Err(e) => return Err(e),
@@ -62,20 +83,27 @@ async fn main() -> io::Result<()> {
             // Forward to ZDM Desktop local IPC port (default 46800)
             let mut stream_res = TcpStream::connect("127.0.0.1:46800").await;
             if stream_res.is_err() {
-                // If ZDM is not running, auto-launch it just like IDM
+                // If ZDM is not running, auto-launch it just like IDM.
+                //
+                // CRITICAL: the child must not inherit our stdio. stdout is the
+                // native-messaging channel — a length-prefixed binary stream — so
+                // anything the app prints there corrupts the protocol and the
+                // browser drops the connection. It also must not inherit stdin,
+                // which would let it consume our next request.
                 let home_bin = std::env::var("HOME")
                     .map(|h| format!("{}/.local/bin/zdm", h))
                     .unwrap_or_default();
 
                 let mut launched = false;
-                if !home_bin.is_empty() && std::path::Path::new(&home_bin).exists() {
-                    if std::process::Command::new(&home_bin).spawn().is_ok() {
-                        launched = true;
-                    }
+                if !home_bin.is_empty()
+                    && std::path::Path::new(&home_bin).exists()
+                    && spawn_detached(&home_bin).is_ok()
+                {
+                    launched = true;
                 }
                 if !launched {
                     for c in ["zdm", "/usr/local/bin/zdm"] {
-                        if std::process::Command::new(c).spawn().is_ok() {
+                        if spawn_detached(c).is_ok() {
                             launched = true;
                             break;
                         }
@@ -118,4 +146,44 @@ async fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The reply framing must be a little-endian u32 length followed by exactly
+    /// that many bytes of JSON. `NativeEndian` happened to work on x86 but is not
+    /// what the native-messaging spec (or the browser) expects.
+    #[test]
+    fn response_framing_matches_the_protocol() {
+        let response = HostResponse {
+            status: "queued".into(),
+            message: "Sent to ZDM Core".into(),
+            app: "Zyzoom Download Manager (ZDM)".into(),
+            author: "Developed by Ramy Badraan".into(),
+        };
+
+        let json = serde_json::to_vec(&response).unwrap();
+        let framed = {
+            let mut buf = Vec::new();
+            buf.extend_from_slice(&(json.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&json);
+            buf
+        };
+
+        assert_eq!(&framed[..4], &(json.len() as u32).to_le_bytes());
+        let declared = u32::from_le_bytes(framed[..4].try_into().unwrap()) as usize;
+        assert_eq!(declared, json.len());
+
+        let parsed: serde_json::Value = serde_json::from_slice(&framed[4..]).unwrap();
+        assert_eq!(parsed["status"], "queued");
+        assert_eq!(parsed["app"], "Zyzoom Download Manager (ZDM)");
+    }
+
+    /// A detached child must never inherit the native-messaging stdout.
+    #[test]
+    fn detached_spawn_does_not_exist_for_a_missing_binary() {
+        assert!(spawn_detached("/definitely/not/a/real/binary").is_err());
+    }
 }

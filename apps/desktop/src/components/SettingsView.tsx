@@ -1,274 +1,851 @@
-//! SettingsView Component
+//! ZDM Settings Screen
 //! Developed by Ramy Badraan
+//!
+//! Every control here persists to the database and takes effect immediately.
+//! The diagnostics card reports what the app actually detected, including the
+//! honest "tray unavailable" case on minimal Linux sessions.
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
-  Settings,
-  Folder,
   Cpu,
+  Folder,
+  HardDrive,
+  RefreshCw as UpdateIcon,
   Globe,
   Film,
-  ShieldCheck,
+  Loader2,
+  CheckCircle2,
   RefreshCw,
   ExternalLink,
-  CheckCircle2,
-  Loader2,
+  ShieldCheck,
+  Activity,
+  Bell,
+  Gauge,
+  Languages,
+  Wrench,
 } from 'lucide-react';
-import { BrowserStatus } from '../types';
+import { SectionCard, Switch } from './ui';
+import { useI18n } from '../i18n';
+import { BrowserStatus, CaptureStatus, DEFAULT_INTERCEPT_EXTENSIONS, Diagnostics, IntegrationReport, Settings, CATEGORY_KEYS, AppInfo } from '../types';
+import type { Update } from '@tauri-apps/plugin-updater';
+import { LANGS, Lang } from '../i18n/dict';
 
-export const SettingsView: React.FC = () => {
-  const [downloadDir, setDownloadDir] = useState('~/Downloads/ZDM');
-  const [defaultConnections, setDefaultConnections] = useState(16);
+interface Props {
+  settings: Settings;
+  onChange: (next: Settings) => void;
+}
+
+export const SettingsView: React.FC<Props> = ({ settings, onChange }) => {
+  const { t, lang, setLang } = useI18n();
   const [browsers, setBrowsers] = useState<BrowserStatus[]>([]);
-  const [isUpdatingYtDlp, setIsUpdatingYtDlp] = useState(false);
-  const [ytDlpStatus, setYtDlpStatus] = useState<string>('فحص الحالة...');
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
+  const [interceptText, setInterceptText] = useState(() => settings.intercept_extensions.join(', '));
+  const [capture, setCapture] = useState<CaptureStatus | null>(null);
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  const [updateBusy, setUpdateBusy] = useState<'idle' | 'checking' | 'installing'>('idle');
+  const [updateAvailable, setUpdateAvailable] = useState<null | { version: string; update: Update }>(null);
+  const [updateMessage, setUpdateMessage] = useState('');
+  const [ytDlpPath, setYtDlpPath] = useState<string>('');
+  const [ytDlpBusy, setYtDlpBusy] = useState(false);
+  const [ffmpegBusy, setFfmpegBusy] = useState(false);
+  const [report, setReport] = useState<IntegrationReport | null>(null);
+  const [savedTick, setSavedTick] = useState(false);
+  const [copiedPath, setCopiedPath] = useState(false);
 
-  // Fetch installed browsers
-  const fetchBrowsers = async () => {
+  // The folder the user must hand to "Load unpacked": the one containing
+  // manifest.json, which is <install dir>\extension — not the install dir itself.
+  const extensionDir = diagnostics?.browser_report?.extension_dir || report?.extension_dir || '';
+
+  // Reset the "Copied" label after a moment so the button stays reusable.
+  useEffect(() => {
+    if (!copiedPath) return;
+    const timer = window.setTimeout(() => setCopiedPath(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [copiedPath]);
+
+  const copyExtensionPath = async () => {
     try {
-      const list: BrowserStatus[] = await invoke('get_browsers');
-      setBrowsers(list);
-    } catch (e) {
-      console.error(e);
+      await navigator.clipboard.writeText(extensionDir);
+      setCopiedPath(true);
+    } catch {
+      /* clipboard blocked: the path is still visible and selectable */
     }
+  };
+
+  // The list is edited as one text field; keep it in sync when the backend
+  // returns a sanitized array after a save.
+  useEffect(() => {
+    setInterceptText(settings.intercept_extensions.join(', '));
+  }, [settings.intercept_extensions]);
+
+  // `get_diagnostics` is cached in Rust, so this is cheap — but it is still only
+  // fetched once per mount, and never re-entered while a request is in flight.
+  const loadingRef = useRef(false);
+
+  const loadAll = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    try {
+      const [list, diag, cap] = await Promise.all([
+        invoke<BrowserStatus[]>('get_browsers'),
+        invoke<Diagnostics>('get_diagnostics'),
+        invoke<CaptureStatus>('capture_status'),
+      ]);
+      setBrowsers(list);
+      setDiagnostics(diag);
+      setCapture(cap);
+    } catch (error) {
+      console.error('diagnostics failed', error);
+    } finally {
+      loadingRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    // Defer past the first paint: the panel appears immediately, the probes fill
+    // in a frame later. This is what stopped the window looking frozen.
+    const timer = window.setTimeout(() => void loadAll(), 60);
+    return () => window.clearTimeout(timer);
+  }, [loadAll]);
+
+  const patch = (partial: Partial<Settings>) => {
+    onChange({ ...settings, ...partial });
+    setSavedTick(true);
+    window.setTimeout(() => setSavedTick(false), 1600);
+  };
+
+  const pickFolder = async () => {
+    try {
+      const chosen = await openDialog({
+        directory: true,
+        multiple: false,
+        defaultPath: settings.download_dir,
+      });
+      if (typeof chosen === 'string') patch({ download_dir: chosen });
+    } catch {
+      /* keep the current path */
+    }
+  };
+
+  const commitIntercept = () => {
+    const list = interceptText
+      .split(',')
+      .map((entry) => entry.trim().replace(/^\./, '').toLowerCase())
+      .filter(Boolean);
+    patch({ intercept_extensions: list });
+  };
+
+  const resetIntercept = () => {
+    setInterceptText(DEFAULT_INTERCEPT_EXTENSIONS.join(', '));
+    patch({ intercept_extensions: DEFAULT_INTERCEPT_EXTENSIONS });
   };
 
   useEffect(() => {
-    fetchBrowsers();
-    // Check yt-dlp
-    invoke('update_yt_dlp_engine')
-      .then((path) => setYtDlpStatus(`جاهز ويعمل (${path})`))
-      .catch((err) => setYtDlpStatus(`بحاجة لتحديث: ${err}`));
+    invoke<AppInfo>('get_app_info')
+      .then(setAppInfo)
+      .catch(() => undefined);
   }, []);
 
-  const handleRegisterAll = async () => {
+  const checkForUpdates = useCallback(async () => {
+    if (updateBusy !== 'idle') return;
+    setUpdateBusy('checking');
+    setUpdateMessage('');
+    setUpdateAvailable(null);
     try {
-      await invoke('register_all_browsers');
-      await fetchBrowsers();
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleLaunchBrowser = async (browserId: string) => {
-    try {
-      await invoke('launch_browser_with_ext', { browserId });
-    } catch (e) {
-      alert(`خطأ أثناء فتح المتصفح: ${e}`);
-    }
-  };
-
-  const handleUpdateYtDlp = async () => {
-    setIsUpdatingYtDlp(true);
-    try {
-      const path: string = await invoke('update_yt_dlp_engine');
-      setYtDlpStatus(`تم التحديث بنجاح (${path})`);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err: any) {
-      setYtDlpStatus(`فشل التحديث: ${err}`);
+      const { check } = await import('@tauri-apps/plugin-updater');
+      const update = await check();
+      if (!update) {
+        setUpdateMessage(t('updateUpToDate'));
+        return;
+      }
+      setUpdateAvailable({ version: update.version, update });
+    } catch (error) {
+      setUpdateMessage(`${t('updateFailed')}: ${String(error)}`);
     } finally {
-      setIsUpdatingYtDlp(false);
+      setUpdateBusy('idle');
+    }
+  }, [updateBusy, t]);
+
+  const installUpdate = useCallback(async () => {
+    if (!updateAvailable || updateBusy !== 'idle') return;
+    setUpdateBusy('installing');
+    try {
+      await updateAvailable.update.downloadAndInstall();
+      setUpdateAvailable(null);
+      setUpdateMessage(t('updateInstalledRestart'));
+    } catch (error) {
+      setUpdateMessage(`${t('updateFailed')}: ${String(error)}`);
+    } finally {
+      setUpdateBusy('idle');
+    }
+  }, [updateAvailable, updateBusy, t]);
+
+  const pickCategoryFolder = async (category: string) => {
+    try {
+      const chosen = await openDialog({
+        directory: true,
+        multiple: false,
+        defaultPath: settings.category_dirs[category] || settings.download_dir || undefined,
+      });
+      if (typeof chosen === 'string') {
+        patch({ category_dirs: { ...settings.category_dirs, [category]: chosen } });
+      }
+    } catch {
+      /* keep the current path */
     }
   };
 
-  const handleSave = () => {
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
+  const resetCategoryFolder = (category: string) => {
+    const next = { ...settings.category_dirs };
+    delete next[category];
+    patch({ category_dirs: next });
+  };
+
+  const categoryLabel = (key: string) =>
+    ({ Video: t('catVideo'), Audio: t('catAudio'), Compressed: t('catCompressed'), Documents: t('catDocuments'), Images: t('catImages'), Programs: t('catPrograms'), Others: t('catOthers') })[key] ?? key;
+
+  const repairBrowsers = async () => {
+    try {
+      const result = await invoke<IntegrationReport>('register_all_browsers');
+      setReport(result);
+      await loadAll();
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const updateYtDlp = async () => {
+    setYtDlpBusy(true);
+    try {
+      const path = await invoke<string>('update_yt_dlp_engine');
+      setYtDlpPath(path);
+    } catch (error) {
+      setYtDlpPath(String(error));
+    } finally {
+      setYtDlpBusy(false);
+    }
+  };
+
+  const installFfmpeg = async () => {
+    setFfmpegBusy(true);
+    try {
+      await invoke<string>('install_ffmpeg');
+      const diag = await invoke<Diagnostics>('get_diagnostics');
+      setDiagnostics(diag);
+      setSavedTick(true);
+      window.setTimeout(() => setSavedTick(false), 1600);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setFfmpegBusy(false);
+    }
+  };
+
+  const changeLanguage = async (code: Lang) => {
+    setLang(code);
+    patch({ language: code });
+  };
+
+  const changeTheme = async (theme: string) => {
+    patch({ theme });
+  };
+
+  const toggleAutostart = async (enabled: boolean) => {
+    try {
+      await invoke('set_autostart', { enabled });
+      patch({ auto_start: enabled });
+      const diag = await invoke<Diagnostics>('get_diagnostics');
+      setDiagnostics(diag);
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-12 select-none animate-fadeIn">
-      {/* Top Header */}
-      <div className="flex items-center justify-between border-b border-[#1E294D] pb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-            <Settings className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-xl font-extrabold text-white">إعدادات ZDM الشاملة</h2>
-            <p className="text-xs text-slate-400">تحكم كامل في محرك التحميل، تكامل المتصفحات، وأدوات الفيديو</p>
-          </div>
+    <div className="space-y-3 pb-6 max-w-3xl">
+      {/* Saved tick */}
+      {savedTick ? (
+        <div className="fixed top-[70px] end-5 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-400/15 border border-emerald-400/30 text-emerald-200 text-[13.5px] font-bold anim-rise">
+          <CheckCircle2 size={13} />
+          {t('saved')}
         </div>
+      ) : null}
 
-        {saveSuccess && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold animate-pulse">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>تم حفظ الإعدادات وتحديث النظام ✓</span>
-          </div>
-        )}
-      </div>
-
-      {/* 1. Download Engine Settings Card */}
-      <div className="bg-[#121933] border border-[#1E294D] rounded-2xl p-5 space-y-4">
-        <div className="flex items-center gap-2.5 text-cyan-400 text-sm font-bold border-b border-[#1A2449] pb-3">
-          <Cpu className="w-4 h-4" />
-          <span>محرك التنزيل والتسريع الموازي (Turbo Engine)</span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* ---------------------------------------------------------- engine */}
+      <SectionCard title={t('sectionEngine')} icon={<Cpu size={14} />}>
+        <div className="space-y-4 min-h-[120px]">
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              مجلد الحفظ الافتراضي للملفات
-            </label>
+            <label className="label block mb-1.5">{t('downloadDirLabel')}</label>
             <div className="flex gap-2">
               <input
                 type="text"
-                value={downloadDir}
-                onChange={(e) => setDownloadDir(e.target.value)}
-                className="flex-1 h-10 px-3.5 rounded-xl bg-[#0B1020] border border-[#23315D] text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-400 text-left"
+                value={settings.download_dir}
+                onChange={(event) => patch({ download_dir: event.target.value })}
+                className="field always-ltr flex-1"
                 dir="ltr"
+                spellCheck={false}
               />
               <button
                 type="button"
-                className="px-3 h-10 rounded-xl bg-[#1A2346] hover:bg-[#253262] text-slate-300 text-xs font-bold border border-[#2A3764] flex items-center gap-1.5 transition-colors cursor-pointer"
+                onClick={pickFolder}
+                className="btn-ghost h-10 px-3 flex items-center gap-1.5 text-[12px] font-bold shrink-0"
               >
-                <Folder className="w-4 h-4 text-cyan-400" />
-                <span>تصفح</span>
+                <Folder size={14} />
+                {t('browse')}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              يتم تصنيف الملفات تلقائياً في مجلدات فرعية (Video, Audio, Compressed, Programs)
-            </p>
+            <p className="text-[12.5px] text-inkMuted mt-1">{t('downloadDirHint')}</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="label">{t('maxConcurrentLabel')}</label>
+                <span className="mono text-[12px] font-bold text-accent2">
+                  {settings.max_concurrent_downloads}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={settings.max_concurrent_downloads}
+                onChange={(event) =>
+                  patch({ max_concurrent_downloads: Number(event.target.value) })
+                }
+                className="w-full accent-cyan-400"
+              />
+              <p className="text-[12.5px] text-inkMuted mt-1">{t('maxConcurrentHint')}</p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="label">{t('defaultConnectionsLabel')}</label>
+                <span className="mono text-[12px] font-bold text-accent2">
+                  {settings.default_connections}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={32}
+                value={settings.default_connections}
+                onChange={(event) => patch({ default_connections: Number(event.target.value) })}
+                className="w-full accent-cyan-400"
+              />
+              <p className="text-[12.5px] text-inkMuted mt-1">{t('connectionsHint')}</p>
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              عدد قنوات التوازي الافتراضية (Connections per Download)
-            </label>
-            <div className="grid grid-cols-4 gap-2">
-              {[4, 8, 16, 32].map((num) => (
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="label flex items-center gap-1.5">
+                <Gauge size={12} />
+                {t('speedLimitLabel')}
+              </label>
+              <span className="mono text-[12px] font-bold text-accent2">
+                {settings.speed_limit_kbps === 0 ? '∞' : settings.speed_limit_kbps}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={20000}
+              step={250}
+              value={settings.speed_limit_kbps}
+              onChange={(event) => patch({ speed_limit_kbps: Number(event.target.value) })}
+              className="w-full accent-cyan-400"
+            />
+            <p className="text-[12.5px] text-inkMuted mt-1">{t('speedLimitHint')}</p>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* --------------------------------------------- download locations */}
+      <SectionCard title={t('sectionLocations')} icon={<HardDrive size={14} />}>
+        <div className="space-y-1">
+          <p className="text-[12px] text-inkMuted mb-2">{t('downloadLocationsHint')}</p>
+          {CATEGORY_KEYS.map((category) => {
+            const override = settings.category_dirs[category];
+            return (
+              <div
+                key={category}
+                className="flex items-center gap-2 py-1.5 border-b border-line last:border-0"
+              >
+                <span className="w-[92px] shrink-0 text-[12.5px] font-semibold text-inkSoft">
+                  {categoryLabel(category)}
+                </span>
+                <span
+                  className="flex-1 min-w-0 mono text-[11px] text-inkMuted truncate"
+                  dir="ltr"
+                  title={override ?? t('locationDefault')}
+                >
+                  {override ?? t('locationDefault')}
+                </span>
+                {override && (
+                  <button
+                    type="button"
+                    onClick={() => resetCategoryFolder(category)}
+                    className="h-7 px-2.5 rounded-md text-[11.5px] font-bold text-inkMuted hover:text-ink hover:bg-panel border border-line transition-colors shrink-0"
+                  >
+                    {t('resetLocation')}
+                  </button>
+                )}
                 <button
-                  key={num}
                   type="button"
-                  onClick={() => setDefaultConnections(num)}
-                  className={`py-2 rounded-xl text-xs font-mono font-bold border transition-all ${
-                    defaultConnections === num
-                      ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md font-black'
-                      : 'bg-[#0B1020] text-slate-300 border-[#23315D] hover:border-cyan-500/50'
+                  onClick={() => void pickCategoryFolder(category)}
+                  className="h-7 w-7 rounded-md flex items-center justify-center text-inkMuted hover:text-ink hover:bg-panel border border-line transition-colors shrink-0"
+                  title={t('browse')}
+                  aria-label={`${t('browse')} — ${categoryLabel(category)}`}
+                >
+                  <Folder size={13} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      {/* -------------------------------------------------------- general */}
+      <SectionCard title={t('sectionGeneral')} icon={<Globe size={14} />}>
+        <div className="space-y-3">
+          {/* Language */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-[12.5px] font-semibold text-inkSoft">
+              <Languages size={14} className="text-inkMuted" />
+              {t('languageLabel')}
+            </div>
+            <div className="flex gap-1 p-0.5 rounded-xl bg-input border border-line">
+              {LANGS.map((option) => (
+                <button
+                  key={option.code}
+                  type="button"
+                  onClick={() => void changeLanguage(option.code)}
+                  className={`px-2.5 h-7 rounded-lg text-[13.5px] font-bold transition-colors ${
+                    lang === option.code
+                      ? 'bg-panelHover text-ink'
+                      : 'text-inkMuted hover:text-inkSoft'
                   }`}
                 >
-                  {num} {num === 32 ? 'Turbo' : ''}
+                  {option.native}
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-cyan-400 font-mono mt-1">
-              Work Stealing مفعل تلقائياً لضمان عدم توقف آخر بايت
-            </p>
           </div>
-        </div>
-      </div>
 
-      {/* 2. Browser Integration & Extension Card */}
-      <div className="bg-[#121933] border border-[#1E294D] rounded-2xl p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-[#1A2449] pb-3">
-          <div className="flex items-center gap-2.5 text-purple-400 text-sm font-bold">
-            <Globe className="w-4 h-4" />
-            <span>تكامل المتصفحات وتثبيت الإضافة التلقائي (Auto-Install Extension)</span>
+          {/* Theme */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-[12.5px] font-semibold text-inkSoft">
+              <ShieldCheck size={14} className="text-inkMuted" />
+              {t('themeLabel')}
+            </div>
+            <div className="flex gap-1 p-0.5 rounded-xl bg-input border border-line">
+              {[
+                { id: 'moon', key: 'themeMoon' as const },
+                { id: 'dawn', key: 'themeDawn' as const },
+                { id: 'system', key: 'themeSystem' as const },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => void changeTheme(option.id)}
+                  className={`px-2.5 h-7 rounded-lg text-[13.5px] font-bold transition-colors ${
+                    settings.theme === option.id
+                      ? 'bg-panelHover text-ink'
+                      : 'text-inkMuted hover:text-inkSoft'
+                  }`}
+                >
+                  {t(option.key)}
+                </button>
+              ))}
+            </div>
           </div>
-          <button
-            onClick={handleRegisterAll}
-            className="px-3.5 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>إعادة تسجيل الإضافة في كافة المتصفحات</span>
-          </button>
-        </div>
 
-        <p className="text-xs text-slate-300">
-          يقوم ZDM بربط الإضافة تلقائياً مع كافة المتصفحات الموجودة على جهازك عبر المضيف المحلي (Native Messaging Host):
-        </p>
+          <Row
+            icon={<RefreshCw size={14} />}
+            title={t('autoStartLabel')}
+            hint={t('autoStartHint')}
+            control={
+              <Switch
+                checked={settings.auto_start}
+                onChange={(next) => void toggleAutostart(next)}
+                label={t('autoStartLabel')}
+              />
+            }
+          />
 
-        {/* Browsers Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-          {browsers.map((b) => (
-            <div
-              key={b.id}
-              className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 ${
-                b.is_installed
-                  ? 'bg-[#0E152E] border-[#202E58]'
-                  : 'bg-[#0B1020]/50 border-[#1A223E] opacity-60'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-sm text-white">{b.name}</span>
-                {b.is_installed ? (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
-                    مثبت ✓
-                  </span>
-                ) : (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-400 font-bold">
-                    غير مثبت
-                  </span>
-                )}
+          <Row
+            icon={<Bell size={14} />}
+            title={t('notificationsLabel')}
+            control={
+              <Switch
+                checked={settings.notifications}
+                onChange={(next) => patch({ notifications: next })}
+                label={t('notificationsLabel')}
+              />
+            }
+          />
+
+          <Row
+            icon={<Globe size={14} />}
+            title={t('captureLabel')}
+            control={
+              <Switch
+                checked={settings.capture_downloads}
+                onChange={(next) => patch({ capture_downloads: next })}
+                label={t('captureLabel')}
+              />
+            }
+          />
+
+          <Row
+            icon={<Film size={14} />}
+            title={t('snifferLabel')}
+            control={
+              <Switch
+                checked={settings.sniffer_enabled}
+                onChange={(next) => patch({ sniffer_enabled: next })}
+                label={t('snifferLabel')}
+              />
+            }
+          />
+
+          {/* Intercept list: the browser keeps everything outside these types. */}
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <div className="flex items-center gap-2 text-[12.5px] font-semibold text-inkSoft">
+                <ShieldCheck size={14} className="text-inkMuted" />
+                {t('interceptExtensionsLabel')}
               </div>
+              <button
+                type="button"
+                onClick={resetIntercept}
+                className="text-[12.5px] font-bold text-accent2 hover:text-ink transition-colors"
+              >
+                {t('resetIntercept')}
+              </button>
+            </div>
+            <input
+              type="text"
+              dir="ltr"
+              spellCheck={false}
+              value={interceptText}
+              onChange={(event) => setInterceptText(event.target.value)}
+              onBlur={commitIntercept}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
+              }}
+              className="field always-ltr w-full"
+              placeholder="mp4, mkv, zip, exe, …"
+            />
+            <p className="text-[12.5px] text-inkMuted mt-1">{t('interceptExtensionsHint')}</p>
+          </div>
+        </div>
+      </SectionCard>
 
-              {b.is_installed && (
+      {/* --------------------------------------------------------- browsers */}
+      <SectionCard
+        title={t('sectionBrowsers')}
+        icon={<Globe size={14} />}
+        action={
+          <button
+            type="button"
+            onClick={() => void repairBrowsers()}
+            className="btn-ghost h-7 px-2.5 flex items-center gap-1.5 text-[13px] font-bold"
+          >
+            <Wrench size={12} />
+            {t('repairBrowsers')}
+          </button>
+        }
+      >
+        <p className="text-[12.5px] text-inkMuted mb-2.5 leading-snug">{t('browsersHint')}</p>
+
+        {/* Without this the user has to guess which folder to hand the browser,
+            and the obvious choice — the install directory — is the wrong one:
+            manifest.json sits one level down in extension\. */}
+        {extensionDir ? (
+          <div className="mb-3 rounded-lg bg-panelHover/40 border border-line p-2.5">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-[12.5px] font-extrabold text-inkSoft">
+                {t('extensionFolderLabel')}
+              </span>
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => handleLaunchBrowser(b.id)}
-                  className="w-full py-1.5 rounded-lg bg-gradient-to-r from-cyan-500/20 to-purple-600/20 hover:from-cyan-500/30 hover:to-purple-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  onClick={() => void copyExtensionPath()}
+                  className="btn-ghost h-6 px-2 text-[12px] font-bold"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>فتح المتصفح وتفعيل الإضافة</span>
+                  {copiedPath ? t('pathCopied') : t('copyPath')}
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => void invoke('open_file_folder', { path: extensionDir })}
+                  className="btn-ghost h-6 px-2 flex items-center gap-1 text-[12px] font-bold"
+                >
+                  <Folder size={11} />
+                  {t('openExtensionFolder')}
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
+            {/* LTR + mono: this is a Windows path, and in an RTL layout it would
+                otherwise render backslashes and the drive letter in the wrong
+                visual order. */}
+            <code
+              dir="ltr"
+              className="block text-[12.5px] font-mono text-accent2 break-all leading-snug text-left"
+            >
+              {extensionDir}
+            </code>
+            <p className="text-[12px] text-inkMuted mt-1.5 leading-snug">
+              {t('extensionFolderHint')}
+            </p>
+          </div>
+        ) : null}
 
-      {/* 3. Media & Video Engine (yt-dlp) Card */}
-      <div className="bg-[#121933] border border-[#1E294D] rounded-2xl p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-[#1A2449] pb-3">
-          <div className="flex items-center gap-2.5 text-rose-400 text-sm font-bold">
-            <Film className="w-4 h-4" />
-            <span>محرك تحميل الفيديو والوسائط (yt-dlp Engine)</span>
+        <div className="space-y-1.5">
+          {browsers
+            .filter((browser) => browser.is_installed)
+            .map((browser) => (
+              <div
+                key={browser.id}
+                className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-panelHover/40 border border-line"
+              >
+                <span className="text-[13.5px] font-bold text-ink flex-1 truncate">
+                  {browser.name}
+                </span>
+                <span className="text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-panel border border-line text-inkMuted">
+                  {browser.family}
+                </span>
+                <span
+                  className={`text-[12px] font-bold px-1.5 py-0.5 rounded ${
+                    browser.native_host_ready
+                      ? 'text-emerald-300 bg-emerald-400/10'
+                      : 'text-amber-300 bg-amber-400/10'
+                  }`}
+                >
+                  {browser.native_host_ready ? t('browserReady') : t('browserPending')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void invoke('launch_browser_with_ext', { browserId: browser.id })
+                  }
+                  title={t('launchBrowser')}
+                  className="btn-icon !w-7 !h-7"
+                >
+                  <ExternalLink size={12} />
+                </button>
+              </div>
+            ))}
+
+          {browsers.filter((browser) => browser.is_installed).length === 0 ? (
+            <p className="text-[13px] text-inkMuted">{t('browserMissing')}</p>
+          ) : null}
+        </div>
+
+        {report && report.warnings.length > 0 ? (
+          <ul className="mt-2.5 space-y-1">
+            {report.warnings.map((warning, index) => (
+              <li key={index} className="text-[12.5px] text-amber-200/80 leading-snug">
+                • {warning}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </SectionCard>
+
+      {/* ---------------------------------------------------------- updates */}
+      <SectionCard title={t('sectionUpdates')} icon={<UpdateIcon size={14} />}>
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-[14px] font-extrabold text-ink" dir="ltr">
+                ZDM {appInfo?.version ?? '—'}
+              </div>
+              <p className="text-[12px] text-inkMuted mt-0.5 max-w-md">{t('updatesHint')}</p>
+            </div>
+            {updateAvailable ? (
+              <button
+                type="button"
+                onClick={() => void installUpdate()}
+                disabled={updateBusy === 'installing'}
+                className="btn-primary h-9 px-3.5 text-[12.5px] font-bold flex items-center gap-1.5"
+              >
+                {updateBusy === 'installing' ? <Loader2 size={13} className="anim-spin" /> : null}
+                {updateBusy === 'installing' ? t('installingUpdate') : t('installUpdate')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void checkForUpdates()}
+                disabled={updateBusy === 'checking'}
+                className="btn-ghost h-9 px-3.5 text-[12.5px] font-bold flex items-center gap-1.5"
+              >
+                {updateBusy === 'checking' ? <Loader2 size={13} className="anim-spin" /> : <UpdateIcon size={13} />}
+                {updateBusy === 'checking' ? t('checkingUpdates') : t('checkForUpdates')}
+              </button>
+            )}
+          </div>
+          {updateAvailable && (
+            <p className="text-[12.5px] font-semibold text-emerald-400">
+              {t('updateAvailable').replace('{version}', updateAvailable.version)}
+            </p>
+          )}
+          {!updateAvailable && updateMessage && (
+            <p className="text-[12px] text-inkMuted">{updateMessage}</p>
+          )}
+          {updateAvailable && updateMessage && (
+            <p className="text-[12px] text-amber-300">{updateMessage}</p>
+          )}
+          {appInfo?.platform === 'linux' && (
+            <p className="text-[11px] text-inkMuted">{t('linuxUpdateHint')}</p>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* ------------------------------------------------------------ video */}
+      <SectionCard title={t('sectionVideo')} icon={<Film size={14} />}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[12.5px] font-semibold text-inkSoft">{t('ytDlpLabel')}</div>
+            <div className="text-[12.5px] text-inkMuted truncate always-ltr mt-0.5" dir="ltr">
+              {ytDlpPath || t('ytDlpReady')}
+            </div>
           </div>
           <button
-            onClick={handleUpdateYtDlp}
-            disabled={isUpdatingYtDlp}
-            className="px-3.5 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+            type="button"
+            onClick={() => void updateYtDlp()}
+            disabled={ytDlpBusy}
+            className="btn-ghost h-8 px-3 flex items-center gap-1.5 text-[13.5px] font-bold shrink-0"
           >
-            {isUpdatingYtDlp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            <span>تحديث / تحميل yt-dlp تلقائياً</span>
+            {ytDlpBusy ? <Loader2 size={13} className="anim-spin" /> : <RefreshCw size={13} />}
+            {ytDlpBusy ? t('ytDlpUpdating') : t('ytDlpUpdate')}
           </button>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-[#0B1020] border border-[#202C55] flex items-center justify-between text-xs">
-          <div>
-            <span className="text-slate-400">حالة محرك استخراج الفيديو: </span>
-            <span className="text-white font-mono font-bold mr-2">{ytDlpStatus}</span>
-          </div>
-          <span className="text-emerald-400 font-bold">يدعم YouTube, Facebook, Twitter, TikTok والمزيد</span>
-        </div>
-      </div>
+      </SectionCard>
 
-      {/* 4. Rights & About Card */}
-      <div className="bg-gradient-to-r from-cyan-950/30 via-purple-950/20 to-pink-950/20 border border-cyan-500/30 rounded-2xl p-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
-            <ShieldCheck className="w-6 h-6" />
+      {/* ------------------------------------------------------------ ffmpeg */}
+      <SectionCard title={t('sectionVideo')} icon={<Film size={14} />}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[12.5px] font-semibold text-inkSoft">{t('ffmpegLabel')}</div>
+            <div
+              className={`text-[12.5px] mt-0.5 leading-snug ${
+                diagnostics?.ffmpeg_available ? 'text-inkMuted' : 'text-amber-300'
+              }`}
+            >
+              {diagnostics?.ffmpeg_available ? t('ffmpegReady') : t('ffmpegMissing')}
+            </div>
           </div>
-          <div>
-            <h3 className="text-sm font-bold text-white">Zyzoom Download Manager (ZDM) Pro</h3>
-            <p className="text-xs text-slate-400">
-              Developed by <strong className="text-cyan-400 font-mono">Ramy Badraan</strong> • جميع الحقوق محفوظة © 2026
-            </p>
-          </div>
+          {!diagnostics?.ffmpeg_available ? (
+            <button
+              type="button"
+              onClick={() => void installFfmpeg()}
+              disabled={ffmpegBusy}
+              className="btn-ghost h-8 px-3 flex items-center gap-1.5 text-[13.5px] font-bold shrink-0"
+            >
+              {ffmpegBusy ? <Loader2 size={13} className="anim-spin" /> : <RefreshCw size={13} />}
+              {t('ffmpegInstall')}
+            </button>
+          ) : null}
         </div>
+      </SectionCard>
 
-        <button
-          onClick={handleSave}
-          className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 via-purple-600 to-pink-500 hover:opacity-95 text-slate-950 font-bold text-xs glow-cyan shadow-lg transition-all active:scale-95 cursor-pointer"
-        >
-          حفظ جميع الإعدادات
-        </button>
-      </div>
+      {/* ------------------------------------------------ browser capture */}
+      <SectionCard title={t('captureHealth')} icon={<Globe size={14} />}>
+        <p className="text-[12px] text-inkMuted mb-2">{t('captureHealthHint')}</p>
+        <dl className="space-y-1.5">
+          <DiagRow
+            label={t('captureBridge')}
+            value={capture?.bridge_running ? `${t('available')} (:${capture.bridge_port})` : t('unavailable')}
+            ok={!!capture?.bridge_running}
+            hint={capture && !capture.bridge_running ? t('captureBridgeDown') : undefined}
+          />
+          <DiagRow
+            label={t('captureEnabledLabel')}
+            value={capture?.capture_downloads ? t('enabled') : t('disabled')}
+            ok={!!capture?.capture_downloads}
+          />
+          <DiagRow
+            label={t('captureInterceptLabel')}
+            value={
+              capture && capture.intercept_extensions.length > 0
+                ? capture.intercept_extensions.slice(0, 8).join(', ') + (capture.intercept_extensions.length > 8 ? ' …' : '')
+                : t('captureNone')
+            }
+            ok={!!capture && capture.intercept_extensions.length > 0}
+            mono
+          />
+        </dl>
+        <p className="text-[11px] text-inkMuted mt-2">{t('captureImagesHint')}</p>
+      </SectionCard>
+
+      {/* ------------------------------------------------------ diagnostics */}
+      <SectionCard title={t('sectionDiagnostics')} icon={<Activity size={14} />}>
+        <p className="text-[12.5px] text-inkMuted mb-2.5">{t('diagnosticsHint')}</p>
+
+        <dl className="space-y-1.5">
+          <DiagRow
+            label={t('trayStatus')}
+            value={diagnostics?.tray_available ? t('available') : t('unavailable')}
+            ok={!!diagnostics?.tray_available}
+            hint={!diagnostics?.tray_available ? t('trayMissingHint') : undefined}
+          />
+          <DiagRow
+            label={t('autostartStatus')}
+            value={diagnostics?.autostart_enabled ? `${t('enabled')} · ${diagnostics.autostart_kind}` : t('disabled')}
+            ok={!!diagnostics?.autostart_enabled}
+            hint={!diagnostics?.autostart_enabled ? t('autostartMissingHint') : undefined}
+          />
+          <DiagRow label={t('desktopStatus')} value={diagnostics?.desktop || '—'} ok />
+          <DiagRow label={t('dataDir')} value={diagnostics?.data_dir || '—'} ok mono />
+          <DiagRow label={t('logFile')} value={diagnostics?.log_file || '—'} ok mono />
+        </dl>
+      </SectionCard>
     </div>
   );
 };
+
+const Row: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  hint?: string;
+  control: React.ReactNode;
+}> = ({ icon, title, hint, control }) => (
+  <div className="flex items-start justify-between gap-3">
+    <div className="flex items-start gap-2 min-w-0">
+      <span className="text-inkMuted mt-0.5">{icon}</span>
+      <div className="min-w-0">
+        <div className="text-[12.5px] font-semibold text-inkSoft">{title}</div>
+        {hint ? <div className="text-[12.5px] text-inkMuted mt-0.5">{hint}</div> : null}
+      </div>
+    </div>
+    {control}
+  </div>
+);
+
+const DiagRow: React.FC<{
+  label: string;
+  value: string;
+  ok?: boolean;
+  mono?: boolean;
+  hint?: string;
+}> = ({ label, value, ok, mono, hint }) => (
+  <div className="flex flex-col gap-0.5">
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-[13px] text-inkMuted shrink-0">{label}</dt>
+      <dd
+        className={`text-[13px] font-semibold truncate ${
+          ok ? 'text-inkSoft' : 'text-amber-300'
+        } ${mono ? 'mono always-ltr' : ''}`}
+        dir={mono ? 'ltr' : undefined}
+      >
+        {value}
+      </dd>
+    </div>
+    {hint ? <p className="text-[12px] text-amber-200/70 leading-snug">{hint}</p> : null}
+  </div>
+);

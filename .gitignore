@@ -15,9 +15,12 @@ Thumbs.db
 .cache/
 coverage/
 
-# ثنائيات الطرف الثالث (ليست جزءًا من المشروع)
-idman643build15.exe
+# build scratch and preview artefacts
+.build/
+.preview/
 *.exe
 
 # حزم البناء
 release/
+packaging/keys/
+.xwin-cache/

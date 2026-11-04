@@ -1,0 +1,18 @@
+{
+  "extName": { "message": "Zyzoom Download Manager (ZDM)" },
+  "extDescription": { "message": "Turbo download accelerator and video sniffer. Sends downloads straight to the ZDM desktop app." },
+  "float_button": { "message": "Download with ZDM" },
+  "app_offline": { "message": "ZDM is not running — start it and try again" },
+  "menu_download_link": { "message": "Download with ZDM" },
+  "menu_download_video": { "message": "Download this video with ZDM" },
+  "menu_open_app": { "message": "Open ZDM" },
+  "notify_error_title": { "message": "ZDM" },
+  "notify_error_body": { "message": "Could not start the download" },
+  "popup_title": { "message": "Zyzoom Download Manager" },
+  "popup_status_online": { "message": "Connected to ZDM" },
+  "popup_status_offline": { "message": "ZDM is closed" },
+  "popup_capture": { "message": "Take over browser downloads" },
+  "popup_capture_hint": { "message": "Confirmed downloads are handed to ZDM. If ZDM is offline the browser keeps downloading." },
+  "popup_open": { "message": "Open ZDM" },
+  "popup_help": { "message": "Open the extension list and enable Developer mode, then use “Load unpacked” if the browser did not install ZDM automatically." }
+}

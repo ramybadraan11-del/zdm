@@ -1,12 +1,15 @@
-//! DownloadCard Component with Multi-Segment Visualizer
+//! ZDM Download Row
 //! Developed by Ramy Badraan
+//!
+//! One row per download, built for a long list: memoised, no blur, no permanent
+//! animation. The signature element is the segment ribbon under the title — one
+//! column per connection so parallelism is visible at a glance.
 
-import React from 'react';
+import React, { memo } from 'react';
 import {
   Play,
   Pause,
   FolderOpen,
-  FileCheck,
   Trash2,
   Film,
   Music,
@@ -14,222 +17,339 @@ import {
   FileText,
   Package,
   Layers,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  RotateCw,
   Maximize2,
 } from 'lucide-react';
 import { DownloadItem } from '../types';
-import { formatBytes, formatSpeed, formatTime, getCategoryBadgeColor } from '../utils/format';
+import { formatBytes, formatSpeed, formatDuration, hostOf, categoryAccent } from '../utils/format';
+import { useI18n } from '../i18n';
+import { Key } from '../i18n/dict';
 
-interface DownloadCardProps {
+interface Props {
   item: DownloadItem;
+  index?: number;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onDelete: (id: string) => void;
   onOpenFile: (path: string) => void;
   onOpenFolder: (path: string) => void;
-  onOpenProgressModal?: (id: string) => void;
+  onOpenTransfer?: (id: string) => void;
 }
 
-export const DownloadCard: React.FC<DownloadCardProps> = ({
+const STATUS_KEY: Record<string, Key> = {
+  queued: 'statusQueued',
+  downloading: 'statusDownloading',
+  paused: 'statusPaused',
+  completed: 'statusCompleted',
+  error: 'statusError',
+  cancelled: 'statusCancelled',
+};
+
+function CategoryIcon({ category }: { category: string }) {
+  const size = 17;
+  switch (category.toLowerCase()) {
+    case 'video':
+      return <Film size={size} />;
+    case 'audio':
+      return <Music size={size} />;
+    case 'compressed':
+      return <Archive size={size} />;
+    case 'documents':
+      return <FileText size={size} />;
+    case 'programs':
+      return <Package size={size} />;
+    default:
+      return <Layers size={size} />;
+  }
+}
+
+const DownloadRowBase: React.FC<Props> = ({
   item,
+  index = 0,
   onPause,
   onResume,
   onDelete,
   onOpenFile,
   onOpenFolder,
-  onOpenProgressModal,
+  onOpenTransfer,
 }) => {
-  const isDownloading = item.status === 'downloading';
-  const isCompleted = item.status === 'completed';
+  const { t } = useI18n();
+  const accent = categoryAccent(item.category);
+
+  const isActive = item.status === 'downloading';
   const isPaused = item.status === 'paused';
-  const badgeColors = getCategoryBadgeColor(item.category);
+  const isQueued = item.status === 'queued';
+  const isDone = item.status === 'completed';
+  const isError = item.status === 'error';
 
-  // Extract host domain from URL
-  let domain = '';
-  try {
-    domain = new URL(item.url).hostname;
-  } catch {
-    domain = 'server';
-  }
-
-  const renderCategoryIcon = () => {
-    switch (item.category.toLowerCase()) {
-      case 'video':
-        return <Film className="w-5 h-5 text-rose-400" />;
-      case 'audio':
-        return <Music className="w-5 h-5 text-amber-400" />;
-      case 'compressed':
-        return <Archive className="w-5 h-5 text-purple-400" />;
-      case 'documents':
-        return <FileText className="w-5 h-5 text-blue-400" />;
-      case 'programs':
-        return <Package className="w-5 h-5 text-emerald-400" />;
-      default:
-        return <Layers className="w-5 h-5 text-cyan-400" />;
-    }
-  };
+  const percent = isDone ? 100 : Math.min(100, Math.max(0, item.progress_percent));
+  const hasSegments = item.segments.length > 1;
+  const sizeLabel = item.total_size > 0 ? formatBytes(item.total_size) : '—';
 
   return (
-    <div className="bg-[#121933] border border-[#1E294D] hover:border-cyan-500/40 rounded-2xl p-4 transition-all duration-200 group">
-      {/* Top Details Row */}
-      <div className="flex items-start justify-between gap-4 mb-3">
-        {/* Left: Icon & Title */}
-        <div className="flex items-center gap-3.5 flex-1 min-w-0">
-          <div
-            className={`w-12 h-12 rounded-xl flex items-center justify-center border shrink-0 ${badgeColors.bg} ${badgeColors.border}`}
-          >
-            {renderCategoryIcon()}
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3
-              className="text-sm font-bold text-slate-100 truncate hover:text-cyan-400 transition-colors cursor-pointer text-left"
-              dir="ltr"
+    <article
+      className="group stagger card px-3.5 py-3"
+      data-state={item.status}
+      style={{ ['--i' as string]: index }}
+    >
+      <div className="flex items-start gap-3">
+        {/* Category chip */}
+        <div
+          className={`w-9 h-9 shrink-0 rounded-lg grid place-items-center border ${accent.ring} ${accent.text}`}
+        >
+          <CategoryIcon category={item.category} />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => isDone && onOpenFile(item.save_path)}
+              disabled={!isDone}
+              className={`text-[12.5px] font-bold truncate text-start always-ltr min-w-0 ${
+                isDone ? 'text-ink hover:text-accent2 cursor-pointer' : 'text-ink cursor-default'
+              }`}
               title={item.filename}
-              onClick={() => isCompleted && onOpenFile(item.save_path)}
             >
               {item.filename}
-            </h3>
-            <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
-              <span className="font-mono text-slate-300 font-semibold">{formatBytes(item.total_size)}</span>
-              <span>•</span>
-              <span className="truncate text-slate-400" dir="ltr">{domain}</span>
-              <span>•</span>
-              <span className="text-cyan-400 font-mono font-medium">{item.connections} قنوات توازي</span>
-              {item.supports_range && (
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">
-                  Range 206
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {isDownloading ? (
-            <button
-              onClick={() => onPause(item.id)}
-              title="إيقاف مؤقت"
-              className="w-9 h-9 rounded-xl bg-[#1A2346] hover:bg-amber-500/20 hover:text-amber-400 text-slate-300 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <Pause className="w-4 h-4 fill-current" />
             </button>
-          ) : isCompleted ? (
-            <button
-              onClick={() => onOpenFile(item.save_path)}
-              title="فتح الملف"
-              className="w-9 h-9 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <FileCheck className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={() => onResume(item.id)}
-              title="استئناف التنزيل"
-              className="w-9 h-9 rounded-xl bg-[#1A2346] hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-300 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <Play className="w-4 h-4 fill-current" />
-            </button>
-          )}
 
-          <button
-            onClick={() => onOpenFolder(item.save_path)}
-            title="فتح مجلد الحفظ"
-            className="w-9 h-9 rounded-xl bg-[#1A2346] hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-400 flex items-center justify-center transition-colors cursor-pointer"
-          >
-            <FolderOpen className="w-4 h-4" />
-          </button>
-
-          {onOpenProgressModal && (
-            <button
-              onClick={() => onOpenProgressModal(item.id)}
-              title="نافذة تفاصيل التنزيل العائمة"
-              className="w-9 h-9 rounded-xl bg-[#1A2346] hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-400 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <Maximize2 className="w-4 h-4" />
-            </button>
-          )}
-
-          <button
-            onClick={() => onDelete(item.id)}
-            title="حذف من القائمة"
-            className="w-9 h-9 rounded-xl bg-[#1A2346] hover:bg-rose-500/20 hover:text-rose-400 text-slate-400 flex items-center justify-center transition-colors cursor-pointer"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Progress & Speed Metrics */}
-      <div className="flex items-center justify-between text-xs mb-2">
-        <div className="flex items-center gap-3">
-          <span className={`font-mono font-bold text-sm ${isCompleted ? 'text-emerald-400' : 'text-cyan-400'}`}>
-            {isCompleted ? '100.0%' : `${item.progress_percent.toFixed(1)}%`}
-          </span>
-          <span className="text-slate-400 font-mono">
-            {isCompleted
-              ? `${formatBytes(item.total_size)} / ${formatBytes(item.total_size)}`
-              : `${formatBytes(item.downloaded_size)} / ${formatBytes(item.total_size)}`}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 font-mono">
-          {isDownloading && (
-            <>
-              <span className="text-cyan-400 font-bold">{formatSpeed(item.speed_bps)}</span>
-              <span className="text-slate-500">•</span>
-              <span className="text-slate-400">متبقي: {formatTime(item.eta_seconds)}</span>
-            </>
-          )}
-          {isCompleted && <span className="text-emerald-400 font-bold">✓ اكتمل التنزيل بنجاح</span>}
-          {isPaused && <span className="text-amber-400 font-bold">⏸ متوقف مؤقتاً</span>}
-        </div>
-      </div>
-
-      {/* Multi-Segment Parallel Stream Visualizer */}
-      <div className="space-y-1.5">
-        {item.segments && item.segments.length > 1 ? (
-          <div className="flex gap-1 h-3.5 bg-[#0C1226] p-0.5 rounded-lg border border-[#1A2449] overflow-hidden">
-            {item.segments.map((seg) => {
-              const segPercent =
-                seg.total_bytes > 0
-                  ? Math.min(100, (seg.downloaded_bytes / seg.total_bytes) * 100)
-                  : 0;
-              const isFinished = seg.is_finished || segPercent >= 100;
-              const isActive = seg.is_active || (isDownloading && !isFinished);
-
-              return (
-                <div
-                  key={seg.index}
-                  className="flex-1 bg-[#141B34] rounded relative overflow-hidden h-full"
-                  title={`قناة ${seg.index + 1}: ${segPercent.toFixed(0)}% (${formatBytes(seg.downloaded_bytes)})`}
-                >
-                  <div
-                    className={`h-full transition-all duration-150 rounded ${
-                      isFinished
-                        ? 'bg-gradient-to-r from-emerald-400 to-cyan-400'
-                        : isActive
-                        ? 'bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 animate-pulse'
-                        : 'bg-cyan-500/40'
-                    }`}
-                    style={{ width: `${segPercent}%` }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* Single Connection Progress Bar */
-          <div className="w-full h-3 bg-[#0C1226] rounded-full overflow-hidden border border-[#1A2449]">
-            <div
-              className={`h-full rounded-full transition-all duration-150 ${
-                isCompleted
-                  ? 'bg-emerald-400'
-                  : 'bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500'
+            <span
+              className={`shrink-0 text-[13px] font-extrabold uppercase tracking-[0.07em] px-1.5 py-[3px] rounded-md border ${
+                isDone
+                  ? 'border-emerald-400/25 text-emerald-400 bg-emerald-400/10'
+                  : isError
+                  ? 'border-danger/25 text-danger bg-danger/10'
+                  : isPaused
+                  ? 'border-warning/25 text-warning bg-warning/10'
+                  : isQueued
+                  ? 'border-line text-inkMuted bg-panelHover/60'
+                  : 'border-accent2/25 text-accent2 bg-accent2/10'
               }`}
-              style={{ width: isCompleted ? '100%' : `${Math.min(100, Math.max(0, item.progress_percent))}%` }}
-            />
+            >
+              {t(STATUS_KEY[item.status] ?? 'statusQueued')}
+            </span>
           </div>
-        )}
+
+          <div className="flex items-center gap-1.5 mt-1 text-[12px] text-inkMuted min-w-0">
+            <span className="mono shrink-0 text-inkSoft" dir="ltr">
+              {sizeLabel}
+            </span>
+            <span className="opacity-30">·</span>
+            <span className="truncate always-ltr">{hostOf(item.url)}</span>
+            {item.connections > 1 ? (
+              <>
+                <span className="opacity-30">·</span>
+                <span className="shrink-0 mono" dir="ltr">
+                  {item.connections}
+                </span>
+              </>
+            ) : null}
+            {!item.supports_range && !isDone ? (
+              <>
+                <span className="opacity-30">·</span>
+                <span className="shrink-0 text-warning/80">{t('rangeUnsupported')}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Actions: one primary, the destructive one appears on hover. */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          {isActive ? (
+            <button
+              type="button"
+              onClick={() => onPause(item.id)}
+              title={t('pause')}
+              aria-label={t('pause')}
+              className="btn-icon hover:text-warning"
+            >
+              <Pause size={15} />
+            </button>
+          ) : null}
+
+          {isPaused || isError ? (
+            <button
+              type="button"
+              onClick={() => onResume(item.id)}
+              title={isError ? t('retry') : t('resume')}
+              aria-label={isError ? t('retry') : t('resume')}
+              className="btn-icon hover:text-emerald-400"
+            >
+              {isError ? <RotateCw size={15} /> : <Play size={15} />}
+            </button>
+          ) : null}
+
+          {isQueued ? (
+            <span className="btn-icon cursor-default" title={t('queuedNotice')}>
+              <Clock size={15} />
+            </span>
+          ) : null}
+
+          {isDone ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onOpenFile(item.save_path)}
+                title={t('openFile')}
+                aria-label={t('openFile')}
+                className="btn-icon hover:text-emerald-400"
+              >
+                <CheckCircle2 size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenFolder(item.save_path)}
+                title={t('openFolder')}
+                aria-label={t('openFolder')}
+                className="btn-icon"
+              >
+                <FolderOpen size={15} />
+              </button>
+            </>
+          ) : null}
+
+          {/* A live transfer can be opened in its own window. */}
+          {onOpenTransfer && (isActive || isPaused) ? (
+            <button
+              type="button"
+              onClick={() => onOpenTransfer(item.id)}
+              title={t('transferTitle')}
+              aria-label={t('transferTitle')}
+              className="btn-icon hover:text-accent2"
+            >
+              <Maximize2 size={14} />
+            </button>
+          ) : null}
+
+          {/* Always visible. It used to appear only on `group-hover`, which
+              left it permanently invisible on touch screens, on Windows when
+              the pointer never enters the row, and for keyboard users who tab
+              through the list — the delete action appeared to be missing. */}
+          <button
+            type="button"
+            onClick={() => onDelete(item.id)}
+            title={t('removeAndDelete')}
+            aria-label={t('removeAndDelete')}
+            className="btn-icon hover:text-danger hover:border-danger/40"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
       </div>
-    </div>
+
+      {/* ------------------------------------------------- segment ribbon */}
+      {!isDone ? (
+        <div className="mt-2.5">
+          {hasSegments && item.total_size > 0 ? (
+            <div className="ribbon h-3">
+              {item.segments.map((segment) => {
+                const span = segment.total_bytes || 1;
+                const ratio = Math.max(
+                  0,
+                  Math.min(100, (segment.downloaded_bytes / span) * 100)
+                );
+                return (
+                  <span
+                    key={segment.index}
+                    data-done={segment.is_finished}
+                    title={`${segment.index + 1}/${item.segments.length} — ${ratio.toFixed(0)}%`}
+                  >
+                    <i style={{ width: `${ratio}%` }} />
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="relative h-2.5 rounded-full bg-input overflow-hidden">
+              <div
+                className={`absolute inset-y-0 start-0 rounded-full transition-[width] duration-200 ease-smooth ${
+                  isActive
+                    ? 'bg-gradient-to-r from-accent1 via-accent2 to-accent3'
+                    : isError
+                    ? 'bg-danger/70'
+                    : 'bg-inkMuted/40'
+                }`}
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          )}
+
+          <div className="flex items-center justify-between mt-1.5 text-[12px]">
+            <span
+              className={`mono font-bold ${isError ? 'text-danger' : 'text-inkSoft'}`}
+              dir="ltr"
+            >
+              {percent.toFixed(percent >= 10 ? 0 : 1)}%
+            </span>
+            <span className="flex items-center gap-2 text-inkMuted mono" dir="ltr">
+              {isActive ? (
+                <>
+                  <span className="text-accent2">{formatSpeed(item.speed_bps)}</span>
+                  <span className="opacity-30">·</span>
+                  <span>{formatDuration(item.eta_seconds)}</span>
+                </>
+              ) : isError ? (
+                <span className="text-danger/90 truncate max-w-[380px]" dir="auto">
+                  {item.error_message || t('errGeneric')}
+                </span>
+              ) : isPaused ? (
+                <span className="text-warning/80">
+                  {formatBytes(item.downloaded_size)} / {sizeLabel}
+                </span>
+              ) : (
+                <span>{t('statusQueued')}</span>
+              )}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-2 flex items-center gap-1.5 text-[12px] text-emerald-400/85">
+          <CheckCircle2 size={11} />
+          <span className="mono" dir="ltr">
+            {formatBytes(item.total_size)}
+          </span>
+        </div>
+      )}
+
+      {isError && item.error_message && item.total_size === 0 ? (
+        <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-danger/90">
+          <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+          <span className="truncate">{item.error_message}</span>
+        </div>
+      ) : null}
+    </article>
   );
 };
+
+/** Only re-render a row when a value it actually paints has changed. */
+export const DownloadRow = memo(DownloadRowBase, (prev, next) => {
+  const a = prev.item;
+  const b = next.item;
+  return (
+    a.id === b.id &&
+    a.status === b.status &&
+    a.downloaded_size === b.downloaded_size &&
+    a.total_size === b.total_size &&
+    a.progress_percent === b.progress_percent &&
+    a.speed_bps === b.speed_bps &&
+    a.eta_seconds === b.eta_seconds &&
+    a.error_message === b.error_message &&
+    prev.index === next.index &&
+    a.segments.length === b.segments.length &&
+    a.segments.every((segment, i) => {
+      const other = b.segments[i];
+      return (
+        other !== undefined &&
+        segment.downloaded_bytes === other.downloaded_bytes &&
+        segment.is_finished === other.is_finished
+      );
+    })
+  );
+});
+
+/** Backwards-compatible alias: the rest of the app imports DownloadCard. */
+export const DownloadCard = DownloadRow;

@@ -1,45 +1,102 @@
-//! Formatting Utilities
+//! ZDM Formatting Helpers
 //! Developed by Ramy Badraan
+//!
+//! Locale-aware but deliberately technical: sizes use binary units (KiB-based
+//! math, familiar MB labels), speeds are always "MB/s", and durations read as
+//! clock values so a list can be scanned quickly.
 
-export function formatBytes(bytes: number, decimals: number = 2): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  if (i < 0 || i >= sizes.length) return `${bytes} B`;
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+export function formatBytes(bytes: number, digits = 1): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, exponent);
+  const precision = exponent === 0 ? 0 : value >= 100 ? 0 : digits;
+  return `${value.toFixed(precision)} ${units[exponent]}`;
 }
 
 export function formatSpeed(bps: number): string {
-  if (bps <= 0) return '0 KB/s';
-  return `${formatBytes(bps)}/s`;
+  if (!Number.isFinite(bps) || bps <= 0) return '—';
+  return `${formatBytes(bps, 1)}/s`;
 }
 
-export function formatTime(seconds: number): string {
-  if (seconds <= 0 || !isFinite(seconds)) return '--';
-  if (seconds < 60) return `${seconds}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  if (mins < 60) return `${mins}m ${secs}s`;
-  const hours = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  return `${hours}h ${remMins}m`;
+/** Remaining time as h:mm:ss / m:ss, or an em dash when unknown. */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+  const total = Math.round(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+  return `${minutes}:${String(secs).padStart(2, '0')}`;
 }
 
-export function getCategoryBadgeColor(category: string): { bg: string; text: string; border: string } {
+/** Media length (not ETA): "1:23:45" style, same rules. */
+export function formatMediaLength(seconds?: number): string {
+  if (!seconds || seconds <= 0) return '—';
+  return formatDuration(seconds);
+}
+
+export function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  return `${Math.min(100, Math.max(0, value)).toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+/** Extract a readable host, or the raw scheme when parsing fails. */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'unknown';
+  }
+}
+
+export function baseName(path: string): string {
+  if (!path) return '';
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
+/** Short, calm badge palette per category (no more than one accent each). */
+export function categoryAccent(category: string): {
+  ring: string;
+  text: string;
+  glow: string;
+} {
   switch (category.toLowerCase()) {
     case 'video':
-      return { bg: 'bg-rose-500/20', text: 'text-rose-400', border: 'border-rose-500/40' };
+      return { ring: 'border-rose-400/25 bg-rose-400/10', text: 'text-rose-300', glow: 'shadow-rose-500/10' };
     case 'audio':
-      return { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/40' };
-    case 'compressed':
-      return { bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/40' };
-    case 'documents':
-      return { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/40' };
+      return { ring: 'border-amber-400/25 bg-amber-400/10', text: 'text-amber-300', glow: 'shadow-amber-500/10' };
     case 'programs':
-      return { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/40' };
+      return { ring: 'border-emerald-400/25 bg-emerald-400/10', text: 'text-emerald-300', glow: 'shadow-emerald-500/10' };
+    case 'compressed':
+      return { ring: 'border-violet-400/25 bg-violet-400/10', text: 'text-violet-300', glow: 'shadow-violet-500/10' };
+    case 'documents':
+      return { ring: 'border-sky-400/25 bg-sky-400/10', text: 'text-sky-300', glow: 'shadow-sky-500/10' };
+    case 'images':
+      return { ring: 'border-fuchsia-400/25 bg-fuchsia-400/10', text: 'text-fuchsia-300', glow: 'shadow-fuchsia-500/10' };
     default:
-      return { bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/40' };
+      return { ring: 'border-slate-400/20 bg-slate-400/10', text: 'text-slate-300', glow: 'shadow-slate-500/10' };
+  }
+}
+
+/** Human label for a status, resolved through the dictionary by the caller. */
+export function statusTone(status: string): { dot: string; text: string } {
+  switch (status) {
+    case 'downloading':
+      return { dot: 'bg-cyan-400', text: 'text-cyan-300' };
+    case 'completed':
+      return { dot: 'bg-emerald-400', text: 'text-emerald-300' };
+    case 'paused':
+      return { dot: 'bg-amber-400', text: 'text-amber-300' };
+    case 'error':
+      return { dot: 'bg-rose-400', text: 'text-rose-300' };
+    case 'queued':
+      return { dot: 'bg-slate-400', text: 'text-slate-300' };
+    default:
+      return { dot: 'bg-slate-500', text: 'text-slate-400' };
   }
 }

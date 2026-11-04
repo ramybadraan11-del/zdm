@@ -1,336 +1,434 @@
-//! VideoDownloaderModal Component (YouTube & Media Sniffer)
+//! ZDM Video Download Dialog
 //! Developed by Ramy Badraan
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Film, Download, Music, AlertCircle, Loader2, Sparkles } from 'lucide-react';
-import { VideoInfo, VideoFormat } from '../types';
-import { formatBytes, formatTime } from '../utils/format';
-import { FileConflictModal, FileConflictData } from './FileConflictModal';
+import { Film, Loader2, AlertTriangle, Search, Music, Video, Download } from 'lucide-react';
+import { Modal } from './ui';
+import { useI18n } from '../i18n';
+import { PlaylistInfo, VideoFormat, VideoInfo } from '../types';
+import { formatBytes, formatMediaLength } from '../utils/format';
 
-interface VideoDownloaderModalProps {
-  isOpen: boolean;
+interface Props {
+  open: boolean;
   onClose: () => void;
-  onQueryVideo: (url: string) => Promise<VideoInfo>;
+  onAdded: () => void;
   initialUrl?: string;
 }
 
-export const VideoDownloaderModal: React.FC<VideoDownloaderModalProps> = ({
-  isOpen,
-  onClose,
-  onQueryVideo,
-  initialUrl,
-}) => {
-  const [url, setUrl] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedFormat, setSelectedFormat] = useState<VideoFormat | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
+type Analysis =
+  | { kind: 'idle' }
+  | { kind: 'busy' }
+  | { kind: 'ok'; info: VideoInfo }
+  | { kind: 'playlist'; info: PlaylistInfo }
+  | { kind: 'error'; message: string };
 
-  const fetchWithUrl = async (targetUrl: string) => {
-    if (!targetUrl.trim()) return;
-    setIsLoading(true);
-    setError(null);
-    setVideoInfo(null);
-    setSelectedFormat(null);
-
-    try {
-      const info = await onQueryVideo(targetUrl.trim());
-      setVideoInfo(info);
-      const best = info.formats.find((f) => f.format_id !== 'bestaudio_mp3' && f.ext !== 'mp3') || info.formats[0];
-      setSelectedFormat(best || null);
-    } catch (err: any) {
-      setError(err.toString());
-    } finally {
-      setIsLoading(false);
-    }
-  };
+export const VideoDownloaderModal: React.FC<Props> = ({ open, onClose, onAdded, initialUrl }) => {
+  const { t } = useI18n();
+  const [url, setUrl] = useState(initialUrl ?? '');
+  const [analysis, setAnalysis] = useState<Analysis>({ kind: 'idle' });
+  const [selected, setSelected] = useState<string | null>(null);
+  const [selectedHeight, setSelectedHeight] = useState<number | null>(null);
+  const [busyIsPlaylist, setBusyIsPlaylist] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [overwrite, setOverwrite] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen && initialUrl && initialUrl.trim()) {
-      setUrl(initialUrl);
-      fetchWithUrl(initialUrl.trim());
-    } else if (!isOpen) {
-      setError(null);
-      setVideoInfo(null);
-      setSelectedFormat(null);
+    if (!open) return;
+    setUrl(initialUrl ?? '');
+    setSelected(null);
+    setSelectedHeight(null);
+    setCustomName('');
+    setOverwrite(false);
+    setSubmitError(null);
+    setSubmitting(false);
+
+    // The extension usually hands us a URL: analyse straight away.
+    if (initialUrl && /^https?:\/\//i.test(initialUrl)) {
+      void analyse(initialUrl);
+    } else {
+      setAnalysis({ kind: 'idle' });
     }
-  }, [isOpen, initialUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialUrl]);
 
-  const handleFetch = async () => {
-    await fetchWithUrl(url);
-  };
-
-  const [conflictData, setConflictData] = useState<FileConflictData | null>(null);
-  const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
-
-  const startDownloadWithParams = async (customFilename?: string, forceOverwrite?: boolean) => {
-    if (!videoInfo || !selectedFormat) return;
-    setIsStarting(true);
-    try {
-      const isAudio = selectedFormat.format_id === 'bestaudio_mp3' || selectedFormat.ext === 'mp3';
-
-      await invoke('start_video_download', {
-        url,
-        formatId: selectedFormat.format_id,
-        title: videoInfo.title,
-        ext: selectedFormat.ext,
-        isAudio,
-        estSize: selectedFormat.filesize || 0,
-        customFilename: customFilename || null,
-        forceOverwrite: forceOverwrite || false,
-      });
-
-      setIsConflictModalOpen(false);
-      onClose();
-    } catch (err: any) {
-      setError(err.toString());
-    } finally {
-      setIsStarting(false);
+  async function analyse(target?: string) {
+    const value = (target ?? url).trim();
+    if (!/^https?:\/\/\S+$/i.test(value)) {
+      setAnalysis({ kind: 'error', message: t('invalidUrl') });
+      return;
     }
-  };
 
-  const handleDownload = async () => {
-    if (!videoInfo || !selectedFormat) return;
-    const isAudio = selectedFormat.format_id === 'bestaudio_mp3' || selectedFormat.ext === 'mp3';
-    const cat = isAudio ? 'Audio' : 'Video';
-    const cleanTitle = videoInfo.title.replace(/[\/\\?%*:|"<>]/g, '_');
-    const targetFilename = `${cleanTitle.trim()}.${selectedFormat.ext}`;
+    setAnalysis({ kind: 'busy' });
+    setBusyIsPlaylist(/[?&]list=/i.test(value));
+    setSelected(null);
+    setSelectedHeight(null);
+    setSubmitError(null);
 
     try {
-      const conflict: any = await invoke('check_file_conflict', {
-        filename: targetFilename,
-        category: cat,
-      });
-
-      if (conflict && conflict.exists) {
-        setConflictData({
-          filename: targetFilename,
-          category: cat,
-          existingPath: conflict.existing_path,
-          existingSize: conflict.existing_size,
-          suggestedName: conflict.suggested_name,
-        });
-        setIsConflictModalOpen(true);
-        return;
+      // A `list=` parameter means the user wants the whole playlist, which is
+      // also how yt-dlp reads the same URL.
+      if (/[?&]list=/i.test(value)) {
+        const info = await invoke<PlaylistInfo>('query_playlist_info', { url: value });
+        setAnalysis({ kind: 'playlist', info });
+        setSelectedHeight(info.heights[0] ?? null);
+      } else {
+        const info = await invoke<VideoInfo>('query_video_info', { url: value });
+        setAnalysis({ kind: 'ok', info });
+        setCustomName(info.title);
+        const first = info.formats.find((format) => !format.is_audio) ?? info.formats[0];
+        if (first) setSelected(first.format_id);
       }
-    } catch (e) {
-      console.warn('Conflict check failed, proceeding normally:', e);
+    } catch (error) {
+      setAnalysis({ kind: 'error', message: String(error) });
+    }
+  }
+
+  const chosen: VideoFormat | undefined =
+    analysis.kind === 'ok'
+      ? analysis.info.formats.find((format) => format.format_id === selected)
+      : undefined;
+
+  const canSubmit =
+    analysis.kind === 'ok'
+      ? Boolean(chosen)
+      : analysis.kind === 'playlist'
+        ? selectedHeight != null
+        : false;
+
+  const submit = async () => {
+    if (analysis.kind === 'playlist') {
+      if (selectedHeight == null) return;
+      setSubmitting(true);
+      setSubmitError(null);
+
+      try {
+        await invoke('start_playlist_download', {
+          entries: analysis.info.entries.map((entry) => ({ url: entry.url, title: entry.title })),
+          height: selectedHeight,
+          folder: null,
+        });
+        onAdded();
+        onClose();
+      } catch (error) {
+        setSubmitError(String(error));
+      } finally {
+        setSubmitting(false);
+      }
+      return;
     }
 
-    await startDownloadWithParams();
-  };
+    if (analysis.kind !== 'ok' || !chosen) return;
+    setSubmitting(true);
+    setSubmitError(null);
 
-  if (!isOpen) return null;
+    try {
+      await invoke('start_video_download', {
+        url: analysis.info.webpage_url || url.trim(),
+        formatId: chosen.format_id,
+        title: analysis.info.title,
+        ext: chosen.ext,
+        isAudio: chosen.is_audio,
+        estSize: chosen.filesize ?? null,
+        customFilename: customName.trim() || null,
+        forceOverwrite: overwrite,
+        folder: null,
+      });
+      onAdded();
+      onClose();
+    } catch (error) {
+      setSubmitError(String(error));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md select-none">
-      <div className="bg-[#101730] border border-[#23315D] rounded-3xl w-full max-w-2xl p-6 shadow-2xl relative glow-cyan max-h-[90vh] overflow-y-auto">
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="w-8 h-8 rounded-full bg-[#1A2346] hover:bg-[#253262] text-slate-400 hover:text-white flex items-center justify-center absolute left-5 top-5 transition-colors cursor-pointer"
-        >
-          <X className="w-4 h-4" />
-        </button>
-
-        {/* Modal Header */}
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400">
-            <Film className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-extrabold text-white">تنزيل الفيديو واليوتيوب (yt-dlp Engine)</h2>
-            <p className="text-xs text-slate-400">التقاط الجودات وتحميل المقاطع بالسرعة القصوى الموازية</p>
-          </div>
-        </div>
-
-        {/* URL Input Form */}
-        <div className="flex gap-2 mb-4">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t('videoTitle')}
+      subtitle={t('navVideo')}
+      icon={<Film size={17} />}
+      width="lg"
+      locked={submitting}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={submitting} className="btn-ghost h-9 px-3.5 text-[12.5px] font-bold">
+            {t('cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit || submitting}
+            className="btn-primary h-9 px-4 text-[12.5px] flex items-center gap-1.5"
+          >
+            {submitting ? <Loader2 size={14} className="anim-spin" /> : <Download size={14} />}
+            {analysis.kind === 'playlist' ? t('videoPlaylistDownload') : t('videoDownload')}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* URL + analyse */}
+        <div className="flex gap-2">
           <input
-            type="text"
+            type="url"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="الصق رابط فيديو من YouTube أو الفيسبوك أو أي موقع..."
-            className="flex-1 h-11 px-4 rounded-xl bg-[#0B1020] border border-[#23315D] text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-rose-400 text-left font-mono"
+            onChange={(event) => setUrl(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void analyse();
+            }}
+            placeholder={t('videoPlaceholder')}
+            className="field always-ltr flex-1"
             dir="ltr"
+            spellCheck={false}
+            autoComplete="off"
           />
           <button
-            onClick={handleFetch}
-            disabled={isLoading || !url}
-            className="px-5 h-11 rounded-xl bg-gradient-to-r from-rose-500 to-purple-600 hover:opacity-95 text-white font-bold text-xs flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
+            type="button"
+            onClick={() => void analyse()}
+            disabled={analysis.kind === 'busy'}
+            className="btn-ghost h-10 px-3 flex items-center gap-1.5 text-[12px] font-bold shrink-0"
           >
-            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            <span>استخراج</span>
+            {analysis.kind === 'busy' ? <Loader2 size={14} className="anim-spin" /> : <Search size={14} />}
+            {t('videoAnalyse')}
           </button>
         </div>
 
-        {error && (
-          <div className="p-3 mb-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
+        {analysis.kind === 'busy' ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-[12px] text-inkMuted">
+            <Loader2 size={16} className="anim-spin" />
+            {busyIsPlaylist ? t('videoPlaylistAnalysing') : t('videoAnalysing')}
           </div>
-        )}
+        ) : null}
 
-        {/* Video Card Details */}
-        {videoInfo && (
-          <div className="space-y-4 pt-2">
-            <div className="flex gap-4 p-4 rounded-2xl bg-[#0B1020] border border-[#202C55]">
-              {videoInfo.thumbnail && (
+        {analysis.kind === 'error' ? (
+          <div className="flex items-start gap-2 p-3 rounded-lg border border-rose-400/30 bg-rose-400/5 text-[13.5px] text-rose-200">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span className="leading-snug">{analysis.message}</span>
+          </div>
+        ) : null}
+
+        {analysis.kind === 'ok' ? (
+          <>
+            {/* Media identity */}
+            <div className="flex gap-3 p-2.5 rounded-xl bg-panelHover/50 border border-line">
+              {analysis.info.thumbnail ? (
                 <img
-                  src={videoInfo.thumbnail}
-                  alt={videoInfo.title}
-                  className="w-36 h-24 object-cover rounded-xl border border-[#202C55]"
+                  src={analysis.info.thumbnail}
+                  alt=""
+                  className="w-28 h-16 object-cover rounded-lg shrink-0 bg-input"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
                 />
+              ) : (
+                <div className="w-28 h-16 rounded-lg bg-input grid place-items-center shrink-0 text-inkMuted">
+                  <Film size={20} />
+                </div>
               )}
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-bold text-white line-clamp-2 mb-1" title={videoInfo.title}>
-                  {videoInfo.title}
-                </h3>
-                <div className="flex items-center gap-3 text-xs text-slate-400">
-                  {videoInfo.uploader && <span>القناة: {videoInfo.uploader}</span>}
-                  {videoInfo.duration_seconds && <span>المدة: {formatTime(videoInfo.duration_seconds)}</span>}
+              <div className="min-w-0 flex-1">
+                <p className="text-[12.5px] font-bold text-ink leading-snug line-clamp-2">
+                  {analysis.info.title}
+                </p>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[12.5px] text-inkMuted">
+                  {analysis.info.uploader ? <span className="truncate">{analysis.info.uploader}</span> : null}
+                  {analysis.info.duration_seconds ? (
+                    <span className="mono">{formatMediaLength(analysis.info.duration_seconds)}</span>
+                  ) : null}
+                  {analysis.info.extractor ? (
+                    <span className="px-1.5 py-0.5 rounded bg-panel border border-line mono">
+                      {analysis.info.extractor}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>
 
-            {/* Video Qualities (MP4) */}
-            {(() => {
-              const videoFormats = videoInfo.formats.filter((f) => f.format_id !== 'bestaudio_mp3' && f.ext !== 'mp3');
-              const audioFormat = videoInfo.formats.find((f) => f.format_id === 'bestaudio_mp3' || f.ext === 'mp3');
-
-              return (
-                <div className="space-y-4">
-                  {/* Video Section */}
-                  {videoFormats.length > 0 && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                          <Film className="w-4 h-4 text-cyan-400" />
-                          <span>جودة الفيديو (صيغة MP4 مع الصوت):</span>
-                        </label>
-                        <span className="text-[11px] text-cyan-400/80 font-mono">دمج تلقائي للصوت والصورة</span>
-                      </div>
-
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto p-1">
-                        {videoFormats.map((fmt) => {
-                          const isSelected = selectedFormat?.format_id === fmt.format_id;
-                          return (
-                            <button
-                              key={fmt.format_id}
-                              type="button"
-                              onClick={() => setSelectedFormat(fmt)}
-                              className={`p-3 rounded-xl text-right border transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
-                                isSelected
-                                  ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-lg glow-cyan'
-                                  : 'bg-[#0E1428] border-[#1E294D] text-slate-300 hover:border-cyan-500/50 hover:bg-[#131B36]'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between w-full">
-                                <span className="font-extrabold text-xs">{fmt.resolution || 'MP4 Video'}</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
-                                  MP4
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between w-full text-[11px] text-slate-400">
-                                <span>الحجم المقدر:</span>
-                                <span className="font-mono text-slate-200">
-                                  {fmt.filesize ? formatBytes(fmt.filesize) : 'حسب الخادم'}
-                                </span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Audio Section (Exactly ONE clear button) */}
-                  {audioFormat && (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-200 mb-2 flex items-center gap-2">
-                        <Music className="w-4 h-4 text-amber-400" />
-                        <span>أو تنزيل الصوت فقط:</span>
-                      </label>
-
-                      <button
-                        type="button"
-                        onClick={() => setSelectedFormat(audioFormat)}
-                        className={`w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer ${
-                          selectedFormat?.format_id === audioFormat.format_id
-                            ? 'bg-amber-500/20 border-amber-400 text-white shadow-lg'
-                            : 'bg-[#0E1428] border-[#1E294D] text-slate-300 hover:border-amber-500/50 hover:bg-[#151B33]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-                            <Music className="w-5 h-5" />
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs font-bold text-white">تنزيل الصوت فقط (MP3 - أعلى جودة)</div>
-                            <div className="text-[11px] text-slate-400">استخراج المسار الصوتي بأعلى نقاء دون تحميل الفيديو</div>
-                          </div>
-                        </div>
-
-                        <div className="text-left">
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 font-mono font-bold block mb-1">
-                            MP3
-                          </span>
-                          <span className="text-xs text-slate-300 font-mono font-semibold">
-                            {audioFormat.filesize ? formatBytes(audioFormat.filesize) : ''}
-                          </span>
-                        </div>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Action Download */}
-            <div className="pt-3 border-t border-[#1E294D] flex justify-end gap-3">
-              <button
-                onClick={onClose}
-                className="px-4 h-10 rounded-xl text-slate-400 hover:text-white text-xs font-bold transition-colors cursor-pointer"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleDownload}
-                disabled={isStarting || !selectedFormat}
-                className="px-6 h-10 rounded-xl bg-gradient-to-r from-cyan-400 via-purple-600 to-pink-500 hover:opacity-95 text-slate-950 font-extrabold text-xs flex items-center gap-2 glow-cyan transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-              >
-                {isStarting ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                ) : (
-                  <Download className="w-4 h-4 stroke-[3] text-slate-950" />
-                )}
-                <span>
-                  {isStarting
-                    ? 'جارٍ التحميل والتجميع...'
-                    : selectedFormat?.format_id === 'bestaudio_mp3'
-                    ? 'تحميل الصوت فقط (MP3)'
-                    : `تحميل الفيديو (${selectedFormat?.resolution || 'MP4'})`}
-                </span>
-              </button>
+            {/* Quality list */}
+            <div>
+              <span className="label block mb-2">{t('videoQuality')}</span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-52 overflow-y-auto pe-1">
+                {analysis.info.formats.map((format) => {
+                  const active = selected === format.format_id;
+                  return (
+                    <button
+                      key={format.format_id}
+                      type="button"
+                      onClick={() => setSelected(format.format_id)}
+                      className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border text-start transition-colors ${
+                        active
+                          ? 'border-accent2/60 bg-accent2/10'
+                          : 'border-line bg-panel/60 hover:border-lineStrong'
+                      }`}
+                    >
+                      <span className={active ? 'text-accent2' : 'text-inkMuted'}>
+                        {format.is_audio ? <Music size={14} /> : <Video size={14} />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[13.5px] font-bold text-ink truncate">
+                          {format.is_audio ? t('videoAudioOnly') : format.resolution ?? format.format_id}
+                        </span>
+                        <span className="block text-[12px] text-inkMuted mono">
+                          {format.ext.toUpperCase()}
+                          {format.filesize ? ` · ${formatBytes(format.filesize)}` : ''}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {analysis.info.formats.length === 0 ? (
+                <p className="text-[13.5px] text-inkMuted">{t('videoNoFormats')}</p>
+              ) : null}
             </div>
-          </div>
-        )}
-      </div>
 
-      <FileConflictModal
-        isOpen={isConflictModalOpen}
-        onClose={() => setIsConflictModalOpen(false)}
-        conflict={conflictData}
-        onDownloadNewName={(newName) => startDownloadWithParams(newName, false)}
-        onOverwrite={() => startDownloadWithParams(conflictData?.filename, true)}
-        onOpenExisting={async (path) => {
-          setIsConflictModalOpen(false);
-          onClose();
-          await invoke('open_file', { path });
-        }}
-      />
-    </div>
+            {/* Filename + overwrite */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="zdm-video-name" className="label block mb-1.5">
+                  {t('videoSaveAs')}
+                </label>
+                <input
+                  id="zdm-video-name"
+                  type="text"
+                  value={customName}
+                  onChange={(event) => setCustomName(event.target.value)}
+                  className="field"
+                />
+              </div>
+              <label className="flex items-end gap-2 pb-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={overwrite}
+                  onChange={(event) => setOverwrite(event.target.checked)}
+                  className="w-4 h-4 rounded border-line bg-input"
+                />
+                <span className="text-[13.5px] font-semibold text-inkSoft leading-snug">
+                  {t('videoOverwrite')}
+                </span>
+              </label>
+            </div>
+          </>
+        ) : null}
+
+        {analysis.kind === 'playlist' ? (
+          <>
+            <div className="flex gap-3 p-2.5 rounded-xl bg-panelHover/50 border border-line">
+              {analysis.info.thumbnail ? (
+                <img
+                  src={analysis.info.thumbnail}
+                  alt=""
+                  className="w-28 h-16 object-cover rounded-lg shrink-0 bg-input"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-28 h-16 rounded-lg bg-input grid place-items-center shrink-0 text-inkMuted">
+                  <Film size={20} />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-[12.5px] font-bold text-ink leading-snug line-clamp-2">
+                  {analysis.info.title}
+                </p>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[12.5px] text-inkMuted">
+                  {analysis.info.uploader ? (
+                    <span className="truncate">{analysis.info.uploader}</span>
+                  ) : null}
+                  <span className="mono">
+                    {analysis.info.entries.length} {t('videoVideos')}
+                  </span>
+                  {analysis.info.total_duration_seconds ? (
+                    <span className="mono">{formatMediaLength(analysis.info.total_duration_seconds)}</span>
+                  ) : null}
+                  <span className="px-1.5 py-0.5 rounded bg-panel border border-line mono">
+                    {t('videoPlaylist')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <span className="label block mb-2">{t('videoQuality')}</span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {analysis.info.heights.map((height) => {
+                  const active = selectedHeight === height;
+                  const size = analysis.info.total_sizes[String(height)] ?? 0;
+                  return (
+                    <button
+                      key={height}
+                      type="button"
+                      onClick={() => setSelectedHeight(height)}
+                      className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border text-start transition-colors ${
+                        active
+                          ? 'border-accent2/60 bg-accent2/10'
+                          : 'border-line bg-panel/60 hover:border-lineStrong'
+                      }`}
+                    >
+                      <span className={active ? 'text-accent2' : 'text-inkMuted'}>
+                        <Video size={14} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[13.5px] font-bold text-ink truncate">{height}p</span>
+                        <span className="block text-[12px] text-inkMuted mono">
+                          MP4{size ? ` · ${formatBytes(size)}` : ''}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[12.5px] text-inkMuted mt-2">{t('videoPlaylistQualityHint')}</p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <span className="label">
+                  {t('videoVideos')} ({analysis.info.entries.length})
+                </span>
+                {selectedHeight != null ? (
+                  <span className="text-[12.5px] text-inkMuted mono">
+                    {t('videoTotalSize')}:{' '}
+                    {formatBytes(analysis.info.total_sizes[String(selectedHeight)] ?? 0)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-line divide-y divide-line/60">
+                {analysis.info.entries.map((entry) => {
+                  const size =
+                    selectedHeight != null ? entry.sizes[String(selectedHeight)] ?? 0 : 0;
+                  return (
+                    <div key={`${entry.id}-${entry.index}`} className="flex items-center gap-2 px-2.5 py-1.5">
+                      <span className="w-6 text-[12px] text-inkMuted mono shrink-0">
+                        {entry.index + 1}
+                      </span>
+                      <span className="min-w-0 flex-1 text-[13px] text-ink truncate">{entry.title}</span>
+                      {entry.duration_seconds ? (
+                        <span className="text-[12px] text-inkMuted mono shrink-0">
+                          {formatMediaLength(entry.duration_seconds)}
+                        </span>
+                      ) : null}
+                      <span className="text-[12px] text-inkMuted mono shrink-0 w-16 text-end">
+                        {size ? formatBytes(size) : '—'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {submitError ? (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg border border-rose-400/30 bg-rose-400/5 text-[13.5px] text-rose-200">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <span className="leading-snug">{submitError}</span>
+          </div>
+        ) : null}
+      </div>
+    </Modal>
   );
 };

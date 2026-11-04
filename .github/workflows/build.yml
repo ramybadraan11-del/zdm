@@ -1,0 +1,257 @@
+name: build
+
+# Builds every distributable on the platform it targets, so nothing is shipped
+# half-verified. Windows needs a Windows runner for makensis + MSVC; Linux builds
+# deb/rpm/AppImage natively.
+#
+# Developed by Ramy Badraan
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------- checks
+  checks:
+    name: Lint, typecheck, unit tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Frontend dependencies
+        run: npm --prefix apps/desktop ci
+
+      - name: TypeScript
+        run: npm --prefix apps/desktop exec tsc -- --noEmit
+
+      - name: Frontend build
+        run: npm --prefix apps/desktop run build
+
+      - name: Rust tests
+        run: cargo test --workspace --all-targets
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # ---------------------------------------------------------------- windows
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install NSIS
+        run: |
+          choco install nsis -y --no-progress
+          echo "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Install signing tooling
+        run: python -m pip install --disable-pip-version-check cryptography
+
+      - name: Build frontend dependencies
+        run: npm --prefix apps/desktop ci
+
+      - name: Build icons
+        shell: bash
+        run: |
+          choco install imagemagick.app -y --no-progress || true
+          echo "icons are committed; regeneration is optional"
+
+      - name: Build the installer (native toolchain)
+        shell: pwsh
+        run: ./windows/build-installer.ps1
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/Zyzoom_Download_Manager_Setup_*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  # ------------------------------------------------------------------ linux
+  linux:
+    name: Linux packages
+    runs-on: ubuntu-22.04
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev librsvg2-bin patchelf libssl-dev \
+            rpm squashfs-tools zstd imagemagick desktop-file-utils
+          python -m pip install --disable-pip-version-check cryptography
+
+      - name: Frontend dependencies
+        run: npm --prefix apps/desktop ci
+
+      - name: Build icons and fonts
+        run: |
+          ./tools/build-icons.sh
+          ./tools/fetch-fonts.sh || echo "fonts already committed"
+
+      - name: Build packages
+        run: bash packaging/build-linux.sh
+
+      - name: Validate the .deb
+        run: |
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb | head -40
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
+            dist/Zyzoom_Download_Manager_Setup_*.exe
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ----------------------------------------------------------------- release
+  publish:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    needs: [windows, linux]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Flatten: artifacts/<name>/<file> -> release/<file>
+      - name: Collect files
+        run: |
+          mkdir -p release
+          find artifacts -mindepth 2 -type f \( -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
+            -exec cp {} release/ \;
+          ( cd release && sha256sum * > SHA256SUMS.txt )
+          ls -lh release
+
+      - name: Install signing tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm gnupg
+
+      - name: Sign updater artifacts (AppImage, Windows x64 installer)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          APPIMAGE="release/Zyzoom_Download_Manager-${VERSION}-x86_64.AppImage"
+          EXE="release/Zyzoom_Download_Manager_Setup_${VERSION}_x64.exe"
+          test -f "$APPIMAGE" || { echo "missing $APPIMAGE"; exit 1; }
+          test -f "$EXE" || { echo "missing $EXE"; exit 1; }
+          npm ci --no-audit --no-fund
+          npm exec -- tauri signer sign "$APPIMAGE"
+          npm exec -- tauri signer sign "$EXE"
+
+      - name: Sign RPM with GPG
+        env:
+          RPM_GPG_PRIVATE_KEY: ${{ secrets.RPM_GPG_PRIVATE_KEY }}
+          RPM_GPG_SIGN_ID: ${{ vars.RPM_GPG_SIGN_ID }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          RPM="release/zyzoom-download-manager-${VERSION}-1.x86_64.rpm"
+          echo "$RPM_GPG_PRIVATE_KEY" | gpg --batch --import
+          rpmsign --addsign --define '_signature openpgp' --define "_openpgp_sign_id ${RPM_GPG_SIGN_ID}" "$RPM"
+          cp docs/zdm-rpm-pubkey.asc release/zdm-rpm-pubkey.asc
+
+      - name: Generate latest.json (Tauri updater)
+        env:
+          RELEASE_NOTES: Zyzoom Download Manager ${{ github.ref_name }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node tools/make-latest-json.mjs "$VERSION" \
+            "https://github.com/${{ vars.RELEASES_REPO }}/releases/download/${GITHUB_REF_NAME}" \
+            "release/Zyzoom_Download_Manager-${VERSION}-x86_64.AppImage" \
+            "release/Zyzoom_Download_Manager_Setup_${VERSION}_x64.exe"
+          ls -lh release
+
+      - name: Publish release on the public releases repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_GITHUB_TOKEN }}
+          RELEASE_NOTES: Zyzoom Download Manager ${{ github.ref_name }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${GITHUB_REF_NAME}"
+          REPO="${{ vars.RELEASES_REPO }}"
+          # Attach every built artifact plus the updater manifest and the GPG key.
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$REPO" --clobber release/*
+          else
+            gh release create "$TAG" --repo "$REPO" \
+              --title "ZDM $VERSION" \
+              --notes "${RELEASE_NOTES}" \
+              release/*
+          fi

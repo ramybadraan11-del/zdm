@@ -1,0 +1,124 @@
+/**
+ * ZDM content styles.
+ *
+ * Injected from the manifest (not inline) so the page's CSP cannot strip it.
+ * Everything is namespaced with `zdm-` and pinned to a very high z-index to sit
+ * above player controls without ever becoming a page-wide overlay.
+ */
+
+.zdm-float-btn {
+  position: fixed;
+  z-index: 2147483000;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 6px 7px 10px;
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(10, 16, 32, 0.94), rgba(17, 25, 48, 0.94));
+  color: #e8f6ff;
+  font: 600 12.5px/1.2 'Cairo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  user-select: none;
+  box-shadow:
+    0 8px 22px rgba(2, 8, 20, 0.55),
+    0 0 0 1px rgba(56, 189, 248, 0.12) inset;
+  backdrop-filter: blur(10px);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease,
+    border-color 0.16s ease;
+  animation: zdm-pop 0.18s ease-out;
+}
+
+.zdm-float-btn.zdm-hover {
+  transform: translateX(-100%) translateY(-1px) scale(1.02);
+  border-color: rgba(56, 189, 248, 0.95);
+  box-shadow:
+    0 10px 26px rgba(2, 8, 20, 0.6),
+    0 0 18px rgba(56, 189, 248, 0.35);
+}
+
+.zdm-float-btn.zdm-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.zdm-float-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.zdm-float-inner svg {
+  color: #38bdf8;
+  flex: 0 0 auto;
+}
+
+.zdm-toast {
+  position: fixed;
+  z-index: 2147483001;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(24, 12, 18, 0.95);
+  color: #fecdd3;
+  font: 600 13px/1.3 'Cairo', system-ui, sans-serif;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.zdm-toast:not(.zdm-toast-out) {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.zdm-toast-out {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
+
+@keyframes zdm-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-100%) translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-100%) translateY(0) scale(1);
+  }
+}
+
+/* Respect users who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .zdm-float-btn {
+    animation: none;
+    transition: opacity 0.1s linear;
+  }
+}
+
+/* Dismiss affordance: a quiet × on the trailing edge of the chip.
+   Sits outside .zdm-float-inner so its click never starts a download. */
+.zdm-float-close {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-inline-start: 2px;
+  border-radius: 50%;
+  font: 700 14px/1 system-ui, sans-serif;
+  color: rgba(232, 246, 255, 0.62);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.zdm-float-close:hover,
+.zdm-float-close:focus-visible {
+  color: #ffffff;
+  background: rgba(255, 93, 108, 0.85);
+  outline: none;
+}

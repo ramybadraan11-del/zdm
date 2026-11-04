@@ -1,0 +1,18 @@
+{
+  "extName": { "message": "زي زوم مدير التنزيل (ZDM)" },
+  "extDescription": { "message": "مُسرّع تنزيل فائق السرعة مع التقاط الفيديو، ويرسل التنزيلات مباشرة إلى تطبيق ZDM." },
+  "float_button": { "message": "تحميل باستخدام ZDM" },
+  "app_offline": { "message": "تطبيق ZDM غير مفتوح — افتحه ثم أعد المحاولة" },
+  "menu_download_link": { "message": "تحميل باستخدام ZDM" },
+  "menu_download_video": { "message": "تحميل هذا الفيديو باستخدام ZDM" },
+  "menu_open_app": { "message": "فتح ZDM" },
+  "notify_error_title": { "message": "ZDM" },
+  "notify_error_body": { "message": "تعذّر بدء التنزيل" },
+  "popup_title": { "message": "زي زوم مدير التنزيل" },
+  "popup_status_online": { "message": "متصل بتطبيق ZDM" },
+  "popup_status_offline": { "message": "التطبيق مغلق" },
+  "popup_capture": { "message": "التقاط تنزيلات المتصفح" },
+  "popup_capture_hint": { "message": "يتم تسليم التنزيل إلى ZDM بعد تأكيده. وإذا كان مغلقاً يكمل المتصفح التنزيل بنفسه." },
+  "popup_open": { "message": "فتح ZDM" },
+  "popup_help": { "message": "افتح صفحة الإضافات وفعّل وضع المطوّر ثم استخدم «تحميل إضافة غير مضغوطة» إذا لم يثبّت المتصفح الإضافة تلقائياً." }
+}

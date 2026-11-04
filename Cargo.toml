@@ -1,6 +1,20 @@
 [workspace]
 members = [
     "apps/desktop/src-tauri",
-    "apps/host"
+    "apps/host",
 ]
 resolver = "2"
+
+# Release tuning lives at the workspace root so both crates share it.
+# `opt-level = "s"` with thin LTO and stripped symbols keeps the binaries small
+# and quick to start, which matters for a background tray app.
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 4
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+incremental = true

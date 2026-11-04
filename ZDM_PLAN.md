@@ -1,8 +1,13 @@
 <div align="center">
 
-<img src="assets/logo-wordmark.svg" alt="ZDM Logo" width="640"/>
+<img src="assets/logo.svg" alt="ZDM Logo" width="120"/>
 
 # Zyzoom Download Manager (ZDM)
+
+> وثيقة التصميم الأصلية. للحالة الفعلية والبناء والتثبيت راجع [`README.md`](README.md).
+>
+> **Original design document.** For the current implementation, build and install
+> instructions see [`README.md`](README.md).
 ### خطة عمل كاملة — مدير تحميل عصري لـ Windows و Linux (Arch / Fedora / Debian)
 
 `Tauri 2` · `Rust` · `TypeScript` · `Dark / Light` · `Browser Extension` · `yt-dlp` · `Torrent`

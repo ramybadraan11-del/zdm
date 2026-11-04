@@ -1,158 +1,90 @@
-//! StatsCards Component with Realtime Speed Sparkline
+//! ZDM Stats Strip
 //! Developed by Ramy Badraan
+//!
+//! Four honest numbers. No gauges, no sparklines: the value is the hierarchy, and
+//! the label is a quiet caption above it.
 
-import React, { useEffect, useRef } from 'react';
-import { Activity, Zap, CheckCircle2, Cpu } from 'lucide-react';
-import { formatSpeed } from '../utils/format';
+import React, { memo } from 'react';
+import { ArrowDownToLine, Activity, CheckCircle2, HardDrive } from 'lucide-react';
+import { formatBytes, formatSpeed } from '../utils/format';
+import { useI18n } from '../i18n';
 
-interface StatsCardsProps {
-  totalSpeedBps: number;
+interface Props {
+  totalSpeed: number;
   activeCount: number;
+  queuedCount: number;
   completedCount: number;
-  speedHistory: number[];
+  diskFree: number;
 }
 
-export const StatsCards: React.FC<StatsCardsProps> = ({
-  totalSpeedBps,
-  activeCount,
-  completedCount,
-  speedHistory,
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Draw real-time sparkline chart
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
-
-    if (speedHistory.length < 2) return;
-
-    const maxSpeed = Math.max(...speedHistory, 1024 * 1024); // min 1MB/s scale
-    const step = width / (speedHistory.length - 1);
-
-    // Gradient fill
-    const grad = ctx.createLinearGradient(0, 0, 0, height);
-    grad.addColorStop(0, 'rgba(0, 245, 255, 0.35)');
-    grad.addColorStop(1, 'rgba(0, 245, 255, 0.0)');
-
-    ctx.beginPath();
-    ctx.moveTo(0, height);
-
-    speedHistory.forEach((speed, i) => {
-      const x = i * step;
-      const y = height - (speed / maxSpeed) * (height - 8);
-      if (i === 0) {
-        ctx.lineTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-
-    ctx.lineTo(width, height);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // Line stroke
-    ctx.beginPath();
-    speedHistory.forEach((speed, i) => {
-      const x = i * step;
-      const y = height - (speed / maxSpeed) * (height - 8);
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-    ctx.strokeStyle = '#00F5FF';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-  }, [speedHistory]);
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-      {/* 1. Total Speed Card with Sparkline */}
-      <div className="bg-[#121933] border border-[#202B52] rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden group hover:border-cyan-500/40 transition-colors">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-slate-400">إجمالي سرعة التحميل</span>
-          <div className="w-7 h-7 rounded-lg bg-cyan-500/15 flex items-center justify-center text-cyan-400">
-            <Activity className="w-4 h-4" />
-          </div>
-        </div>
-        <div className="z-10">
-          <div className="text-2xl font-black font-mono text-cyan-400 tracking-tight">
-            {formatSpeed(totalSpeedBps)}
-          </div>
-          <div className="text-[11px] text-slate-400 font-medium">معدل النقل الفعلي المباشر</div>
-        </div>
-        {/* Canvas Sparkline */}
-        <div className="h-12 w-full mt-2">
-          <canvas ref={canvasRef} width={260} height={50} className="w-full h-full" />
-        </div>
+const Stat: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  hint?: string;
+  tone: string;
+  live?: boolean;
+}> = ({ icon, label, value, hint, tone, live }) => (
+  <div className="panel edge-light px-3 py-2.5 flex items-center gap-2.5 min-w-0">
+    <div className={`w-8 h-8 rounded-lg grid place-items-center shrink-0 ${tone}`}>{icon}</div>
+    <div className="min-w-0">
+      <div className="text-[13px] font-bold uppercase tracking-[0.1em] text-inkMuted truncate">
+        {label}
       </div>
-
-      {/* 2. Active Downloads */}
-      <div className="bg-[#121933] border border-[#202B52] rounded-2xl p-4 flex flex-col justify-between hover:border-purple-500/40 transition-colors">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-400">تنزيلات نشطة</span>
-          <div className="w-7 h-7 rounded-lg bg-purple-500/15 flex items-center justify-center text-purple-400">
-            <Zap className="w-4 h-4" />
-          </div>
-        </div>
-        <div>
-          <div className="text-3xl font-black font-mono text-purple-400 my-1">
-            {activeCount}
-          </div>
-          <div className="text-[11px] text-slate-400 font-medium">
-            {activeCount > 0 ? 'تعمل بكامل قنوات التوازي' : 'لا توجد تنزيلات نشطة'}
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Completed Downloads */}
-      <div className="bg-[#121933] border border-[#202B52] rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-500/40 transition-colors">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-400">الملفات المكتملة</span>
-          <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
-            <CheckCircle2 className="w-4 h-4" />
-          </div>
-        </div>
-        <div>
-          <div className="text-3xl font-black font-mono text-emerald-400 my-1">
-            {completedCount}
-          </div>
-          <div className="text-[11px] text-slate-400 font-medium">جاهزة فوراً دون انتظار دمج</div>
-        </div>
-      </div>
-
-      {/* 4. Turbo Concurrency Engine */}
-      <div className="bg-[#121933] border border-[#202B52] rounded-2xl p-4 flex flex-col justify-between hover:border-pink-500/40 transition-colors">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-400">محرك التسريع الموازي</span>
-          <div className="w-7 h-7 rounded-lg bg-pink-500/15 flex items-center justify-center text-pink-400">
-            <Cpu className="w-4 h-4" />
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-black font-mono text-gradient">
-              x32 Turbo
-            </div>
-            <div className="text-[11px] text-slate-400 font-medium">Work Stealing مفعل</div>
-          </div>
-          <div className="w-12 h-12 rounded-full border-2 border-cyan-400/30 border-t-cyan-400 flex items-center justify-center text-xs font-mono font-bold text-cyan-300">
-            100%
-          </div>
-        </div>
+      <div className="flex items-baseline gap-1 min-w-0">
+        <span
+          className={`mono text-[13.5px] font-extrabold text-ink leading-tight truncate ${
+            live ? 'tabular-nums' : ''
+          }`}
+          dir="ltr"
+        >
+          {value}
+        </span>
+        {hint ? (
+          <span className="text-[11px] font-semibold text-inkMuted shrink-0">{hint}</span>
+        ) : null}
       </div>
     </div>
-  );
-};
+  </div>
+);
+
+export const StatsStrip: React.FC<Props> = memo(
+  ({ totalSpeed, activeCount, queuedCount, completedCount, diskFree }) => {
+    const { t } = useI18n();
+
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <Stat
+          icon={<Activity size={14} />}
+          label={t('speed')}
+          value={totalSpeed > 0 ? formatSpeed(totalSpeed) : '0 B/s'}
+          tone={
+            totalSpeed > 0
+              ? 'bg-accent2/12 text-accent2'
+              : 'bg-panelHover text-inkMuted'
+          }
+          live
+        />
+        <Stat
+          icon={<ArrowDownToLine size={14} />}
+          label={t('navActive')}
+          value={String(activeCount)}
+          hint={queuedCount > 0 ? `+${queuedCount}` : undefined}
+          tone="bg-accent3/12 text-accent3"
+        />
+        <Stat
+          icon={<CheckCircle2 size={14} />}
+          label={t('navCompleted')}
+          value={String(completedCount)}
+          tone="bg-emerald-400/12 text-emerald-400"
+        />
+        <Stat
+          icon={<HardDrive size={14} />}
+          label={t('freeSpace')}
+          value={diskFree > 0 ? formatBytes(diskFree, 0) : '—'}
+          tone="bg-inkMuted/10 text-inkSoft"
+        />
+      </div>
+    );
+  }
+);

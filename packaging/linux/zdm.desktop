@@ -1,0 +1,43 @@
+[Desktop Entry]
+Type=Application
+Version=1.1
+Name=Zyzoom Download Manager
+Name[ar]=زي زوم مدير التنزيل
+Name[fr]=Zyzoom Download Manager
+GenericName=Download Manager
+GenericName[ar]=مدير التنزيل
+GenericName[fr]=Gestionnaire de téléchargement
+Comment=Multi-segment download accelerator with browser capture and video download
+Comment[ar]=مُسرّع تنزيل متعدد الاتصالات مع التقاط من المتصفح وتنزيل الفيديو
+Comment[fr]=Accélérateur de téléchargement multi-segments avec capture navigateur
+Exec=zdm %U
+TryExec=zdm
+Icon=zdm
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=download;manager;accelerator;video;
+Keywords[ar]=تنزيل;مدير;فيديو;تحميل
+Keywords[fr]=téléchargement;gestionnaire;vidéo;
+StartupNotify=true
+StartupWMClass=zdm
+SingleMainWindow=true
+Actions=AddUrl;Video;Torrent;
+MimeType=application/x-bittorrent;x-scheme-handler/magnet;
+
+[Desktop Action AddUrl]
+Name=Add download link
+Name[ar]=إضافة رابط تنزيل
+Name[fr]=Ajouter un lien
+Exec=zdm --add-url
+
+[Desktop Action Video]
+Name=Download a video
+Name[ar]=تنزيل فيديو
+Name[fr]=Télécharger une vidéo
+Exec=zdm --video
+
+[Desktop Action Torrent]
+Name=Open a torrent file
+Name[ar]=فتح ملف تورنت
+Name[fr]=Ouvrir un fichier torrent
+Exec=zdm --add-torrent
