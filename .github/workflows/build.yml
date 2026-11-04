@@ -47,7 +47,7 @@ jobs:
         run: npm ci
 
       - name: TypeScript
-        run: npm --prefix apps/desktop exec tsc -- --noEmit
+        run: cd apps/desktop && npx tsc --noEmit
 
       - name: Frontend build
         run: npm --prefix apps/desktop run build
