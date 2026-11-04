@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install Linux dependencies
         run: |
@@ -44,7 +44,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Frontend dependencies
-        run: npm --prefix apps/desktop ci
+        run: npm ci
 
       - name: TypeScript
         run: npm --prefix apps/desktop exec tsc -- --noEmit
@@ -70,7 +70,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -89,7 +89,7 @@ jobs:
           python -m pip install --disable-pip-version-check cryptography
 
       - name: Frontend dependencies
-        run: npm --prefix apps/desktop ci
+        run: npm ci
 
       - name: Build icons and fonts
         run: |
@@ -132,7 +132,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - uses: actions/download-artifact@v4
         with:
