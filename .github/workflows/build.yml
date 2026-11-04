@@ -58,59 +58,6 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-  # ---------------------------------------------------------------- windows
-  windows:
-    name: Windows installer
-    runs-on: windows-latest
-    needs: checks
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - uses: Swatinem/rust-cache@v2
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install NSIS
-        run: |
-          choco install nsis -y --no-progress
-          echo "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-      - name: Install signing tooling
-        run: python -m pip install --disable-pip-version-check cryptography
-
-      - name: Build frontend dependencies
-        run: npm --prefix apps/desktop ci
-
-      - name: Build icons
-        shell: bash
-        run: |
-          choco install imagemagick.app -y --no-progress || true
-          echo "icons are committed; regeneration is optional"
-
-      - name: Build the installer (native toolchain)
-        shell: pwsh
-        run: ./windows/build-installer.ps1
-
-      - name: Upload installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: dist/Zyzoom_Download_Manager_Setup_*.exe
-          if-no-files-found: error
-          retention-days: 14
-
   # ------------------------------------------------------------------ linux
   linux:
     name: Linux packages
@@ -152,6 +99,9 @@ jobs:
       - name: Build packages
         run: bash packaging/build-linux.sh
 
+      - name: Build Windows installers (cross on Linux, proven path)
+        run: bash windows/build_installer.sh
+
       - name: Validate the .deb
         run: |
           dpkg-deb --info dist/*.deb
@@ -174,7 +124,7 @@ jobs:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
-    needs: [windows, linux]
+    needs: [linux]
     steps:
       - uses: actions/checkout@v4
 
