@@ -107,7 +107,9 @@ jobs:
         run: bash packaging/build-linux.sh
 
       - name: Install cargo-xwin
-        run: cargo install cargo-xwin --locked
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo install cargo-xwin --locked
 
       - name: Build Windows installers (cross on Linux, proven path)
         run: bash windows/build_installer.sh
