@@ -211,6 +211,7 @@ jobs:
             "https://github.com/${{ vars.RELEASES_REPO }}/releases/download/${GITHUB_REF_NAME}" \
             "release/Zyzoom_Download_Manager-${VERSION}-x86_64.AppImage" \
             "release/Zyzoom_Download_Manager_Setup_${VERSION}_x64.exe"
+          mv latest.json release/latest.json
           ls -lh release
 
       - name: Publish release on the public releases repo
