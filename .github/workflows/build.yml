@@ -96,6 +96,13 @@ jobs:
           ./tools/build-icons.sh
           ./tools/fetch-fonts.sh || echo "fonts already committed"
 
+      - name: Restore extension signing key
+        run: |
+          mkdir -p packaging/keys
+          printf '%s' "$EXTENSION_PEM" > packaging/keys/zdm-extension.pem
+        env:
+          EXTENSION_PEM: ${{ secrets.EXTENSION_PEM }}
+
       - name: Build packages
         run: bash packaging/build-linux.sh
 
