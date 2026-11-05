@@ -11,7 +11,7 @@
 [![Stack](https://img.shields.io/badge/engine-Tauri%202%20%C2%B7%20Rust%20%C2%B7%20Tokio-orange.svg)](#)
 [![UI](https://img.shields.io/badge/ui-React%2018%20%C2%B7%20TypeScript%20%C2%B7%20Tailwind-cyan.svg)](#)
 [![Languages](https://img.shields.io/badge/languages-%D8%A7%D9%84%D8%B9%D8%B1%D8%A8%D9%8A%D8%A9%20%C2%B7%20English%20%C2%B7%20Fran%C3%A7ais-green.svg)](#)
-[![Platforms](https://img.shields.io/badge/platforms-Linux%20%C2%B7%20Windows-blue.svg)](#)
+[![Platforms](https://img.shields.io/badge/platforms-Linux%20%C2%B7%20Windows-blue.svg)](https://github.com/ramybadraan11-del/zdm-releases)
 
 </div>
 
