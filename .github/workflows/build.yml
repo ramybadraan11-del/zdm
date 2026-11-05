@@ -195,7 +195,11 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           RPM="release/zyzoom-download-manager-${VERSION}-1.x86_64.rpm"
           echo "$RPM_GPG_PRIVATE_KEY" | gpg --batch --import
-          rpmsign --addsign --define '_signature openpgp' --define "_openpgp_sign_id ${RPM_GPG_SIGN_ID}" "$RPM"
+          rpmsign --addsign \
+            --define '_signature gpg' \
+            --define '_gpgbin /usr/bin/gpg' \
+            --define "_gpg_name ${RPM_GPG_SIGN_ID}" \
+            "$RPM"
           cp docs/zdm-rpm-pubkey.asc release/zdm-rpm-pubkey.asc
 
       - name: Generate latest.json (Tauri updater)
