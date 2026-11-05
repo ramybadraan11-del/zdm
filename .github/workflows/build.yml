@@ -1,14 +1,14 @@
 name: build
 
-# Builds every distributable on the platform it targets, so nothing is shipped
-# half-verified. Windows needs a Windows runner for makensis + MSVC; Linux builds
-# deb/rpm/AppImage natively.
+# Builds every distributable on the platforms this repository supports, so nothing
+# is shipped half-verified. Windows installers are cross-built on Linux with
+# cargo-xwin/NSIS; Linux builds deb/rpm/AppImage natively.
 #
 # Developed by Ramy Badraan
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
