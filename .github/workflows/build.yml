@@ -165,7 +165,6 @@ jobs:
           mkdir -p release
           find artifacts -mindepth 2 -type f \( -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
             -exec cp {} release/ \;
-          ( cd release && sha256sum * > SHA256SUMS.txt )
           ls -lh release
 
       - name: Install signing tools
@@ -212,6 +211,7 @@ jobs:
             "release/Zyzoom_Download_Manager-${VERSION}-x86_64.AppImage" \
             "release/Zyzoom_Download_Manager_Setup_${VERSION}_x64.exe"
           mv latest.json release/latest.json
+          ( cd release && sha256sum $(ls | grep -v '^SHA256SUMS.txt$') > SHA256SUMS.txt )
           ls -lh release
 
       - name: Publish release on the public releases repo
