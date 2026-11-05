@@ -111,6 +111,14 @@ jobs:
           rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
           cargo install cargo-xwin --locked
           cargo install xwin --locked
+          for d in /usr/lib/llvm-*/bin; do
+            [ -d "$d" ] || continue
+            for tool in clang-cl clang-cl++ lld-link llvm-lib; do
+              [ -f "$d/$tool" ] && ln -sf "$d/$tool" "/usr/local/bin/$tool" || true
+            done
+          done
+          command -v clang-cl || ln -sf "$(command -v clang)" /usr/local/bin/clang-cl
+          command -v lld-link || command -v lld-link-14 && ln -sf "$(command -v lld-link-14)" /usr/local/bin/lld-link
 
       - name: Build Windows installers (cross on Linux, proven path)
         run: bash windows/build_installer.sh
