@@ -106,6 +106,9 @@ jobs:
       - name: Build packages
         run: bash packaging/build-linux.sh
 
+      - name: Install cargo-xwin
+        run: cargo install cargo-xwin --locked
+
       - name: Build Windows installers (cross on Linux, proven path)
         run: bash windows/build_installer.sh
 
