@@ -85,7 +85,7 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
             librsvg2-dev librsvg2-bin patchelf libssl-dev \
-            rpm squashfs-tools zstd imagemagick desktop-file-utils llvm nasm
+            rpm squashfs-tools zstd imagemagick desktop-file-utils llvm lld clang nasm
           python -m pip install --disable-pip-version-check cryptography
 
       - name: Frontend dependencies
