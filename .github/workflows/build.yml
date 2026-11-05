@@ -184,8 +184,8 @@ jobs:
           test -f "$APPIMAGE" || { echo "missing $APPIMAGE"; exit 1; }
           test -f "$EXE" || { echo "missing $EXE"; exit 1; }
           npm ci --no-audit --no-fund
-          npm exec -- tauri signer sign "$APPIMAGE"
-          npm exec -- tauri signer sign "$EXE"
+          ./apps/desktop/node_modules/.bin/tauri signer sign "$APPIMAGE"
+          ./apps/desktop/node_modules/.bin/tauri signer sign "$EXE"
 
       - name: Sign RPM with GPG
         env:
