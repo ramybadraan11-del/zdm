@@ -89,8 +89,8 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
     x86|both)
       # `cargo xwin` will not splat an x86-only cache, so the 32-bit build goes
       # through the dedicated script that drives cargo directly.
-      bash tools/build-windows-x86.sh -p zdm -p zdm-host >/dev/null 2>&1 \
-        || die "the 32-bit build failed; run tools/build-windows-x86.sh manually to see why"
+      bash tools/build-windows-x86.sh -p zdm -p zdm-host \
+        || die "the 32-bit build failed; see the output above"
       ok "i686: zdm.exe + zdm-host.exe"
       ;;
   esac
